@@ -555,7 +555,7 @@ func (s *s3ObjectStore) ListKeys(keyPrefix string) (
 
 	bucket := s.s3Bucket
 
-	ctx, cancel := context.WithDeadline(context.TODO(), time.Now().Add(s3Timeout))
+	ctx, cancel := context.WithTimeout(context.TODO(), 30*time.Second)
 	defer cancel()
 
 	for gotAllObjects := false; !gotAllObjects; {

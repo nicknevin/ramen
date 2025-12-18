@@ -65,7 +65,7 @@ def load_image(args):
         command.watch(*cmd, stderr=subprocess.STDOUT, cwd=work_dir)
 
 
-def deploy(args, cluster, deploy_type, distro="", timeout=120):
+def deploy(args, cluster, deploy_type, distro="", timeout=180):
     command.info("Deploying ramen operator in cluster '%s'", cluster)
     overlay = os.path.join(args.source_dir, f"config/{deploy_type}/default", distro)
     yaml = kubectl.kustomize(overlay, load_restrictor="LoadRestrictionsNone")

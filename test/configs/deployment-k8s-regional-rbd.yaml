@@ -7,5 +7,5 @@ path: subscription/deployment-k8s-regional-rbd
 branch: main
 name: deployment-rbd
 namespace: deployment-rbd
-dr_policy: dr-policy
+dr_policy: dr-policy-1m
 pvc_label: busybox

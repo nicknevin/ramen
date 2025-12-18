@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+import os
+import sys
+import time
+
+from drenv import kubectl
+from drenv import providers
+
+if len(sys.argv) != 2:
+    print(f"Usage: {sys.argv[0]} cluster")
+    sys.exit(1)
+
+os.chdir(os.path.dirname(__file__))
+cluster = sys.argv[1]
+
+print("Configuring Kubernetes API server audit logging")
+
+minikube = providers.get("minikube")
+
+minikube.ssh(cluster, "sudo mkdir -p /var/log/audit")
+
+minikube.cp(cluster, "audit-policy.yaml", "/etc/kubernetes/audit-policy.yaml")
+
+minikube.cp(cluster, "patch-apiserver.sh", "/tmp/patch-apiserver.sh")
+
+print("Patching kube-apiserver manifest (this will stop and restart the API server)")
+minikube.ssh(cluster, "sudo chmod +x /tmp/patch-apiserver.sh && sudo /tmp/patch-apiserver.sh")
+
+print("Waiting for kube-apiserver to restart and kube-system pods to be ready...")
+
+# Poll until pods are ready, handling API server not responding
+max_retries = 60  # Wait up to 5 minutes
+retry_delay = 5  # seconds
+
+for attempt in range(max_retries):
+    try:
+        print(f"Checking kube-system pods status (attempt {attempt + 1}/{max_retries})")
+        kubectl.wait(
+            "pod",
+            "--all",
+            "--for=condition=Ready",
+            "--namespace=kube-system",
+            "--timeout=5s",
+            context=cluster,
+        )
+        print("All kube-system pods are ready")
+        break
+    except Exception as e:
+        if attempt < max_retries - 1:
+            print(f"Pods not ready yet, waiting {retry_delay} seconds...")
+            time.sleep(retry_delay)
+        else:
+            print("ERROR: kube-system pods did not become ready in time")
+            raise
+
+print("Audit logging configuration completed successfully!")
+print("Audit logs will be written to /var/log/audit/audit.log on the node")
+print("View audit logs with:")
+print(f"  minikube ssh -p {cluster} -- sudo tail -f /var/log/audit/audit.log")
+print("Or copy logs from the node:")
+print(f"  minikube ssh -p {cluster} 'sudo cat /var/log/audit/audit.log' > ./audit.log")

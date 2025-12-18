@@ -124,9 +124,20 @@ func LoadControllerConfig(configFile string,
 
 	ControllerType = ct
 
-	log.Info("loading Ramen configuration from defaults", "controllerType", ct)
+	if configFile == "" {
+		log.Info("loading Ramen configuration from defaults", "controllerType", ct)
 
-	return DefaultRamenConfig(ct)
+		return DefaultRamenConfig(ct)
+	}
+
+	log.Info("loading Ramen configuration from ", "file", configFile)
+
+	ramenConfig, err := ReadRamenConfigFile(log, configFile)
+	if err != nil {
+		panic(fmt.Sprintf("could not parse config file: %v", err))
+	}
+
+	return ramenConfig
 }
 
 func LoadControllerOptions(options *ctrl.Options, ramenConfig *ramendrv1alpha1.RamenConfig) {
@@ -605,4 +616,21 @@ func volSyncDestinationCopyMethodOrDefault(ramenConfig *ramendrv1alpha1.RamenCon
 	}
 
 	return ramenConfig.VolSync.DestinationCopyMethod
+}
+
+func ReadRamenConfigFile(log logr.Logger, configFileName string) (ramenConfig *ramendrv1alpha1.RamenConfig, err error) {
+	var fileContents []byte
+	fileContents, err = os.ReadFile(configFileName)
+	if err != nil {
+		err = fmt.Errorf("unable to load the config file %s: %w", configFileName, err)
+		return
+	}
+
+	err = yaml.Unmarshal(fileContents, &ramenConfig)
+	if err != nil {
+		err = fmt.Errorf("unable to marshal the config file %s: %w", configFileName, err)
+		return
+	}
+
+	return
 }
