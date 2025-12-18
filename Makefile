@@ -33,9 +33,9 @@ endif
 BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 
 IMAGE_REGISTRY ?= quay.io
-IMAGE_REPOSITORY ?= ramendr
+IMAGE_REPOSITORY ?= nnevin
 IMAGE_NAME ?= ramen
-IMAGE_TAG ?= latest
+IMAGE_TAG ?= canary
 DISTRO ?= k8s
 IMAGE_TAG_BASE = $(IMAGE_REGISTRY)/$(IMAGE_REPOSITORY)/$(IMAGE_NAME)
 
@@ -219,7 +219,7 @@ coverage:
 
 .PHONY: venv
 venv:
-	hack/make-venv
+	hack/make-venv ~/.venv/$(shell basename $(CURDIR))
 
 ##@ Build
 

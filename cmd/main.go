@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -44,14 +45,16 @@ import (
 	controllers "github.com/ramendr/ramen/internal/controller"
 	argocdv1alpha1hack "github.com/ramendr/ramen/internal/controller/argocd"
 	rmnutil "github.com/ramendr/ramen/internal/controller/util"
+
 	// +kubebuilder:scaffold:imports
 	_ "github.com/ramendr/ramen/internal/dummy"
 )
 
 var (
-	scheme     = runtime.NewScheme()
-	setupLog   = ctrl.Log.WithName("setup")
-	configFile string
+	scheme        = runtime.NewScheme()
+	setupLog      = ctrl.Log.WithName("setup")
+	configFile    string
+	noLeaderElect bool
 )
 
 func init() {
@@ -81,6 +84,8 @@ func bindFlags(bindfuncs ...func(*flag.FlagSet)) {
 		"The controller will load its initial configuration from this file. "+
 			"Omit this flag to use the default configuration values. "+
 			"Command-line flags override configuration from this file.")
+	flag.BoolVar(&noLeaderElect, "no-leader-elect", false,
+		"Wwhen true don't perform leader election.")
 
 	for _, f := range bindfuncs {
 		f(flag.CommandLine)
@@ -92,6 +97,10 @@ func buildOptions() (*ctrl.Options, *ramendrv1alpha1.RamenConfig) {
 
 	ramenConfig := controllers.LoadControllerConfig(configFile, setupLog)
 	controllers.LoadControllerOptions(&ctrlOptions, ramenConfig)
+
+	if noLeaderElect {
+		ctrlOptions.LeaderElection = false
+	}
 
 	return &ctrlOptions, ramenConfig
 }

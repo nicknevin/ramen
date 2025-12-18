@@ -1,0 +1,9 @@
+running 'make resources' edits
+  config/dr-cluster/manager/kustomization.yaml
+  config/hub/manager/kustomization.yaml
+to set the image according to the value of IMAGE_REGISTRY in Makefile
+
+File test/addons/ocm-hub-cluster/start is a copy of test/addons/ocm-hub/start hacked
+to not do cluster init.
+File test/addons/ocm-dr-cluster/start is a copy of test/addons/ocm-cluster/start hacked
+to not do cluster init.

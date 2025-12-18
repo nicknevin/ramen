@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: The RamenDR authors
+# SPDX-License-Identifier: Apache-2.0
+
+# Example environment demonstrating Kubernetes API server audit logging.
+# This shows how to enable audit logging using the audit-logging addon.
+#
+# The addon automatically:
+# - Installs the audit policy to /etc/kubernetes/audit-policy.yaml
+# - Creates /var/log/audit directory for audit logs
+# - Patches the kube-apiserver manifest to enable audit logging
+# - Waits for the API server to restart
+#
+# View audit logs with:
+#   minikube ssh -p audit -- sudo tail -f /var/log/audit/audit.log
+#
+# Or copy to local machine:
+#   minikube cp audit:/var/log/audit/audit.log ./audit.log
+---
+name: audit-example
+templates:
+  - name: "audit-cluster"
+    driver: $vm
+    container_runtime: containerd
+    cpus: 2
+    memory: 4g
+    workers:
+      - addons:
+          - name: audit-logging
+profiles:
+  - name: audit
+    template: audit-cluster
