@@ -5,6 +5,8 @@ metadata:
 spec:
   provisioner: rook-ceph.rbd.csi.ceph.com
   parameters:
+    replication.storage.openshift.io/replication-secret-name: rook-csi-rbd-provisioner
+    replication.storage.openshift.io/replication-secret-namespace: rook-ceph
     mirroringMode: snapshot
     schedulingInterval: "2m"
 ---
@@ -15,5 +17,7 @@ metadata:
 spec:
   provisioner: rook-ceph.rbd.csi.ceph.com
   parameters:
+    replication.storage.openshift.io/replication-secret-name: rook-csi-rbd-provisioner
+    replication.storage.openshift.io/replication-secret-namespace: rook-ceph
     mirroringMode: snapshot
     schedulingInterval: "5m"
