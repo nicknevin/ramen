@@ -1,0 +1,10 @@
+apiVersion: csiaddons.openshift.io/v1alpha1
+kind: CSIAddonsNode
+metadata:
+  name: dr2-rook-ceph-rbd
+  namespace: rook-ceph
+spec:
+  driver:
+    name: rook-ceph.rbd.csi.ceph.com
+    endpoint: unix:///csi/csi-addons.sock
+    nodeID: dr2

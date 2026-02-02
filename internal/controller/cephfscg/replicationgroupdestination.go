@@ -275,7 +275,7 @@ func (m *rgdMachine) CreateReplicationDestinations(
 
 	rd := &volsyncv1alpha1.ReplicationDestination{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      util.GetReplicationDestinationName(rdSpec.ProtectedPVC.Name),
+			Name:      getReplicationDestinationName(rdSpec.ProtectedPVC.Name),
 			Namespace: m.ReplicationGroupDestination.Namespace,
 		},
 	}
@@ -311,7 +311,7 @@ func (m *rgdMachine) CreateReplicationDestinations(
 			return nil
 		}); err != nil {
 		m.Logger.Error(err, "Failed to create or update ReplicationDestination",
-			"ReplicationDestinationName", util.GetReplicationDestinationName(rdSpec.ProtectedPVC.Name))
+			"ReplicationDestinationName", getReplicationDestinationName(rdSpec.ProtectedPVC.Name))
 
 		return nil, fmt.Errorf("%w", err)
 	}

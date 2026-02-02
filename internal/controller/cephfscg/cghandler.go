@@ -378,7 +378,7 @@ func (c *cgHandler) DeleteLocalRDAndRS(rd *volsyncv1alpha1.ReplicationDestinatio
 
 	lrs := &volsyncv1alpha1.ReplicationSource{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      util.GetLocalReplicationName(rd.Name),
+			Name:      getLocalReplicationName(rd.Name),
 			Namespace: rd.Namespace,
 		},
 	}
@@ -390,7 +390,7 @@ func (c *cgHandler) DeleteLocalRDAndRS(rd *volsyncv1alpha1.ReplicationDestinatio
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			return c.VSHandler.DeleteLocalRD(
-				util.GetLocalReplicationName(rd.Name),
+				getLocalReplicationName(rd.Name),
 				rd.Namespace,
 			)
 		}

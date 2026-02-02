@@ -915,14 +915,11 @@ func (v *VRGInstance) cleanupResources() error {
 }
 
 func (v *VRGInstance) doCleanupResources(name, namespace string) error {
-	if err := v.volSyncHandler.DeleteRS(name, namespace, true); err != nil {
+	if err := v.volSyncHandler.DeleteRS(name, namespace); err != nil {
 		return err
 	}
 
-	// Here, we don't remove the RD as an owner of the PVC as the RD is being deleted because the workload is being
-	// deleted. Instead, we want garbage collection to clean up the PVC as part of that RD deletion (because it is on
-	// the secondary.)
-	if err := v.volSyncHandler.DeleteRD(name, namespace, true); err != nil {
+	if err := v.volSyncHandler.DeleteRD(name, namespace); err != nil {
 		return err
 	}
 
@@ -988,6 +985,18 @@ func (v *VRGInstance) aggregateVolSyncClusterDataConflictCondition() *metav1.Con
 	}
 
 	return noClusterDataConflictCondition
+}
+
+func (v *VRGInstance) aggregateVolSyncAutoCleanupCondition() *metav1.Condition {
+	autoCleanupCondition := &metav1.Condition{
+		Status:             metav1.ConditionFalse,
+		Type:               VRGConditionTypeAutoCleanup,
+		Reason:             VRGConditionReasonUnused,
+		ObservedGeneration: v.instance.Generation,
+		Message:            "Automated cleanup not applicable for VolSync scheme.",
+	}
+
+	return autoCleanupCondition
 }
 
 func (v *VRGInstance) getCGLablelFromPVC(pvc *corev1.PersistentVolumeClaim, finalSync bool) (string, bool) {

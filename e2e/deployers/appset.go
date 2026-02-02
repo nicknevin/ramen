@@ -4,7 +4,6 @@
 package deployers
 
 import (
-	recipe "github.com/ramendr/recipe/api/v1alpha1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/ramendr/ramen/e2e/config"
@@ -134,11 +133,6 @@ func (a ApplicationSet) GetNamespace(ctx types.TestContext) string {
 
 func (a ApplicationSet) IsDiscovered() bool {
 	return false
-}
-
-// GetRecipe returns nil as ApplicationSet deployer does not use Recipe.
-func (a ApplicationSet) GetRecipe(ctx types.TestContext) (*recipe.Recipe, error) {
-	return nil, nil
 }
 
 func init() {

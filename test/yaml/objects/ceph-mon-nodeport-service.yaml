@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ceph-mon-nodeport
+  namespace: rook-ceph
+  labels:
+    app: ceph-mon-nodeport
+spec:
+  type: NodePort
+  ports:
+  - port: 6789
+    targetPort: 6789
+    nodePort: 30789
+    protocol: TCP
+    name: mon
+  - port: 3300
+    targetPort: 3300
+    nodePort: 30300
+    protocol: TCP
+    name: mgr
+  selector:
+    app: rook-ceph-mon

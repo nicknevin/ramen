@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: csi-rbdplugin-provisioner
+  namespace: rook-ceph
+spec:
+  template:
+    spec:
+      containers:
+      - name: csi-addons
+        image: quay.io/csiaddons/k8s-sidecar:v0.9.1
+        args:
+          - "--node-id=$(NODE_ID)"
+          - "--csi-addons-address=unix:///csi/csi-addons.sock"
+          - "--namespace=$(POD_NAMESPACE)"
+          - "--pod=$(POD_NAME)"
+          - "--pod-uid=$(POD_UID)"
+          - "--controller-ip=0.0.0.0"
+          - "--controller-port=8080"
+          - "--leader-election-namespace=$(POD_NAMESPACE)"
+          - "--v=5"
+        env:
+          - name: NODE_ID
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_UID
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.uid
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+          - name: socket-dir
+            mountPath: /csi
+        resources:
+          limits:
+            memory: "100Mi"
+            cpu: "100m"
+          requests:
+            memory: "50Mi"
+            cpu: "50m"
