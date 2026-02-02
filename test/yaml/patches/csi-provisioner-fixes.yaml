@@ -1,0 +1,257 @@
+# CSI Provisioner Fixes for Ceph CSI Compatibility
+# These patches fix several issues:
+# 1. cephcsi binary expects -nodeid (single dash), not --node-id (double dash)
+# 2. log-collector container needs proper long-running command
+# 3. CSI socket path: /csi/csi-provisioner.sock (not $(ADDRESS) expansion)
+# 4. Wrong container images in initial Rook deployment
+# 5. Missing --type=rbd argument for csi-omap-generator
+# 6. Unnecessary -nodeid flags in standard CSI sidecars
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: csi-rbdplugin-provisioner
+  namespace: rook-ceph
+spec:
+  template:
+    spec:
+      containers:
+      # Fix 1: Correct cephcsi image
+      - name: csi-provisioner
+        image: quay.io/cephcsi/cephcsi:v3.15.0
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--csi-address=unix:///csi/csi-provisioner.sock"
+          - "--v=5"
+          - "--timeout=150s"
+          - "--retry-interval=5s"
+          - "--leader-election=true"
+          - "--feature-gates=Topology=true"
+          - "--default-fstype=ext4"
+      
+      # Fix 2: Correct nodeid flag format (single dash)
+      - name: csi-rbdplugin
+        image: quay.io/cephcsi/cephcsi:v3.15.0
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--nodeid=$(NODE_ID)"  # Single dash for cephcsi
+          - "--type=rbd"
+          - "--controllerserver=true"
+          - "--endpoint=unix:///csi/csi-provisioner.sock"
+          - "--v=5"
+        env:
+          - name: NODE_ID
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+      
+      # Fix 3: Remove invalid -nodeid from csi-snapshotter
+      - name: csi-snapshotter
+        image: registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--csi-address=unix:///csi/csi-provisioner.sock"
+          - "--v=5"
+          - "--timeout=150s"
+          # Note: NO -nodeid flag - csi-snapshotter doesn't support it
+      
+      # Fix 4: Correct socket path (not $(ADDRESS) variable)
+      - name: csi-resizer
+        image: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--csi-address=/csi/csi-provisioner.sock"  # Hardcoded path
+          - "--v=5"
+          - "--timeout=150s"
+          # Note: NO -nodeid flag - csi-resizer doesn't support it
+      
+      # Fix 5: CSI addons with correct flag format (double dash for csi-addons)
+      - name: csi-addons
+        image: quay.io/csiaddons/k8s-sidecar:v0.9.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--node-id=$(NODE_ID)"  # Double dash for csi-addons
+          - "--csi-addons-address=unix:///csi/csi-addons.sock"
+          - "--namespace=$(POD_NAMESPACE)"
+          - "--pod=$(POD_NAME)"
+          - "--pod-uid=$(POD_UID)"
+          - "--controller-ip=0.0.0.0"
+          - "--controller-port=8080"
+          - "--leader-election-namespace=$(POD_NAMESPACE)"
+          - "--v=5"
+        env:
+          - name: NODE_ID
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_UID
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.uid
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: csi-cephfsplugin-provisioner
+  namespace: rook-ceph
+spec:
+  template:
+    spec:
+      containers:
+      # Same fixes as rbdplugin-provisioner but for CephFS
+      - name: csi-provisioner
+        image: quay.io/cephcsi/cephcsi:v3.15.0
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--csi-address=unix:///csi/csi-provisioner.sock"
+          - "--v=5"
+          - "--timeout=150s"
+          - "--retry-interval=5s"
+          - "--leader-election=true"
+      
+      - name: csi-cephfsplugin
+        image: quay.io/cephcsi/cephcsi:v3.15.0
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--nodeid=$(NODE_ID)"  # Single dash for cephcsi
+          - "--type=cephfs"  # Different from RBD
+          - "--controllerserver=true"
+          - "--endpoint=unix:///csi/csi-provisioner.sock"
+          - "--v=5"
+        env:
+          - name: NODE_ID
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+      
+      - name: csi-snapshotter
+        image: registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--csi-address=unix:///csi/csi-provisioner.sock"
+          - "--v=5"
+          - "--timeout=150s"
+      
+      - name: csi-resizer
+        image: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--csi-address=/csi/csi-provisioner.sock"  # Hardcoded path
+          - "--v=5"
+          - "--timeout=150s"
+      
+      - name: csi-addons
+        image: quay.io/csiaddons/k8s-sidecar:v0.9.1
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--node-id=$(NODE_ID)"  # Double dash for csi-addons
+          - "--csi-addons-address=unix:///csi/csi-addons.sock"
+          - "--namespace=$(POD_NAMESPACE)"
+          - "--pod=$(POD_NAME)"
+          - "--pod-uid=$(POD_UID)"
+          - "--controller-ip=0.0.0.0"
+          - "--controller-port=8080"
+          - "--leader-election-namespace=$(POD_NAMESPACE)"
+          - "--v=5"
+        env:
+          - name: NODE_ID
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_UID
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.uid
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: csi-rbdplugin
+  namespace: rook-ceph
+spec:
+  template:
+    spec:
+      containers:
+      # Fix log-collector initialization
+      - name: log-collector
+        image: alpine:3.19
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c"]
+        args:
+          - |
+            while true; do
+              sleep 3600
+            done
+        # Removed invalid -nodeid and -type arguments
+      
+      # Fix 1: Correct nodeid flag format (single dash)
+      - name: csi-rbdplugin
+        image: quay.io/cephcsi/cephcsi:v3.15.0
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--nodeid=$(NODE_ID)"  # Single dash for cephcsi
+          - "--type=rbd"
+          - "--nodeserver=true"
+          - "--endpoint=unix:///csi/csi.sock"
+          - "--v=5"
+        env:
+          - name: NODE_ID
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: csi-cephfsplugin
+  namespace: rook-ceph
+spec:
+  template:
+    spec:
+      containers:
+      # Fix log-collector initialization
+      - name: log-collector
+        image: alpine:3.19
+        imagePullPolicy: IfNotPresent
+        command: ["sh", "-c"]
+        args:
+          - |
+            while true; do
+              sleep 3600
+            done
+      
+      # Fix 1: Correct nodeid flag format (single dash)
+      - name: csi-cephfsplugin
+        image: quay.io/cephcsi/cephcsi:v3.15.0
+        imagePullPolicy: IfNotPresent
+        args:
+          - "--nodeid=$(NODE_ID)"  # Single dash for cephcsi
+          - "--type=cephfs"  # Different from RBD
+          - "--nodeserver=true"
+          - "--endpoint=unix:///csi/csi.sock"
+          - "--v=5"
+        env:
+          - name: NODE_ID
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName

@@ -24,25 +24,26 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # Define required images for Rook/Ceph and CSI
 declare -a ROOK_IMAGES=(
-    "rook/ceph:v1.18.9"
-    "quay.io/ceph/ceph:v18.2.2"
+    "quay.io/rook/ceph:v1.18.9"
+    "quay.io/ceph/ceph:v19"
     "quay.io/nladha/csiaddons-sidecar:cg"
 )
 
 declare -a CSI_IMAGES=(
     "registry.k8s.io/sig-storage/csi-attacher:v4.8.1"
-    "registry.k8s.io/sig-storage/csi-provisioner:v3.5.0"
+    "registry.k8s.io/sig-storage/csi-provisioner:v5.2.0"
     "registry.k8s.io/sig-storage/csi-resizer:v1.13.2"
     "registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1"
-    "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.8.0"
+    "registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0"
     "registry.k8s.io/sig-storage/livenessprobe:v2.8.0"
     "registry.k8s.io/sig-storage/csi-external-health-monitor-controller:v0.7.0"
-    "registry.k8s.io/sig-storage/snapshot-controller:v8.2.1"
+    "registry.k8s.io/sig-storage/snapshot-controller:v7.0.1"
 )
 
 declare -a CSI_ADDONS_IMAGES=(
-    "quay.io/csiaddons/k8s-controller:v0.9.1"
-    "quay.io/csiaddons/k8s-sidecar:v0.9.1"
+    "quay.io/csiaddons/k8s-controller:latest"
+    "quay.io/csiaddons/k8s-sidecar:v0.11.0"
+    "alpine:3.19"
     "gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0"
     "quay.io/cephcsi/cephcsi:v3.11.0"
     "quay.io/cephcsi/cephcsi:v3.15.0"
@@ -54,16 +55,10 @@ declare -a MINIKUBE_ADDON_IMAGES=(
     "gcr.io/k8s-minikube/kube-registry-proxy:0.0.9"
 )
 
-# Custom/problematic images that may need substitution
-declare -a CUSTOM_IMAGES=(
-    "quay.io/nladha/csiaddons-controller:cg"
-    "quay.io/nladha/csiaddons-sidecar:cg"
-)
-
-# Standard substitutes for custom images
+# Standard substitutes for custom images (use official versions)
 declare -a SUBSTITUTE_IMAGES=(
-    "quay.io/csiaddons/k8s-controller:v0.9.1"
-    "quay.io/csiaddons/k8s-sidecar:v0.9.1"
+    "quay.io/csiaddons/k8s-controller:latest"
+    "quay.io/csiaddons/k8s-sidecar:v0.11.0"
 )
 
 # Function to check if Docker image exists locally

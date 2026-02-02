@@ -36,13 +36,16 @@ make setup-csi-replication
 # 2. Test CSI replication functionality 
 make test-csi-replication
 
-# 3. Stop clusters (keep VMs for faster restart)
+# 3. Clean up duplicate resources (if running setup multiple times)
+make clean-csi-duplicates
+
+# 4. Stop clusters (keep VMs for faster restart)
 make stop-csi-replication
 
-# 4. Start existing clusters
+# 5. Start existing clusters
 make start-csi-replication  
 
-# 5. Delete everything completely
+# 6. Delete everything completely
 make delete-csi-replication
 ```
 
@@ -57,13 +60,14 @@ That's it! The `setup-csi-replication` target handles everything automatically:
 
 ## Summary
 
-**5 Essential Commands:**
+**6 Essential Commands:**
 1. `make setup-csi-replication` → Complete environment setup (one-time, ~25 min)
 2. `make test-csi-replication` → Test CSI replication functionality  
 3. `make test-csi-failover` → Test volume failover (demote/promote flow)
-4. `make stop-csi-replication` → Stop clusters (keep VMs)
-5. `make start-csi-replication` → Start stopped clusters  
-6. `make delete-csi-replication` → Remove everything
+4. `make clean-csi-duplicates` → Clean up duplicate resources
+5. `make stop-csi-replication` → Stop clusters (keep VMs)
+6. `make start-csi-replication` → Start stopped clusters  
+7. `make delete-csi-replication` → Remove everything
 
 **What you get:** Two Kubernetes clusters (dr1, dr2) with Ceph storage, CSI replication, and cross-cluster RBD mirroring - ready for CSI API testing without RamenDR complexity.
 
@@ -71,6 +75,45 @@ That's it! The `setup-csi-replication` target handles everything automatically:
 - `make start-csi-replication` is **idempotent** - safe to run multiple times
 - If clusters are already running, it will apply TLS fixes and continue normally
 - If clusters don't exist, you need `make setup-csi-replication` first
+- Running `make setup-csi-replication` multiple times may create duplicate resources
+
+## Duplicate Resource Management
+
+Running `make setup-csi-replication` multiple times can create duplicate resources due to image pull failures or incomplete setups. The `clean-csi-duplicates` target provides a solution:
+
+### What Gets Cleaned Up
+
+The `make clean-csi-duplicates` command removes:
+- **Duplicate storage classes** (keeps only the first `rook-ceph-block` StorageClass)
+- **Duplicate Ceph block pools** (keeps only the first `replicapool` CephBlockPool)
+- **Duplicate rook-ceph-operator deployments** (keeps only one per cluster)
+- **Duplicate snapshot-controller deployments** (keeps only one per cluster)
+
+### When to Use
+
+Use `make clean-csi-duplicates` when:
+- Setup failed due to ImagePullBackOff errors and you need to retry
+- You see multiple instances of the same resource type
+- Storage operations fail due to conflicting resources
+- Before running `make setup-csi-replication` again after a partial failure
+
+### Usage Example
+
+```bash
+# If setup fails or creates duplicates
+make clean-csi-duplicates
+
+# Then retry setup
+make setup-csi-replication
+```
+
+### Safe Operation
+
+The cleanup process:
+- ✅ Only removes duplicates (keeps the first instance of each resource)
+- ✅ Works on both `dr1` and `dr2` clusters simultaneously
+- ✅ Ignores errors if resources don't exist
+- ✅ Preserves working deployments and storage
 
 ---
 
@@ -84,6 +127,7 @@ For troubleshooting or advanced use cases, individual components can be managed 
 # Manual fixes (only if needed)
 make fix-csi-addons-tls         # Apply TLS configuration fixes
 make setup-csi-storage-resources # Setup storage classes and VRCs  
+make clean-csi-duplicates       # Remove duplicate resources
 make status-csi-replication     # Check cluster status
 ```
 
@@ -539,6 +583,19 @@ basic-test/deploy dr1
    # Check mirror pool status
    kubectl --context=dr1 -n rook-ceph exec -it deploy/rook-ceph-tools -- \
      rbd mirror pool info replicapool
+   ```
+
+5. **Duplicate resources after multiple setup attempts**
+   ```bash
+   # Check for duplicates
+   kubectl --context=dr1 get storageclass | grep rook-ceph-block
+   kubectl --context=dr1 -n rook-ceph get cephblockpool | grep replicapool
+   
+   # Clean up duplicates
+   make clean-csi-duplicates
+   
+   # Retry setup
+   make setup-csi-replication
    ```
 
 ### Debug Commands

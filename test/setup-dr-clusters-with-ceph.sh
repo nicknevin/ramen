@@ -129,8 +129,8 @@ declare -a CSI_IMAGES=(
 )
 
 declare -a CSI_ADDONS_IMAGES=(
-    "quay.io/csiaddons/k8s-controller:v0.8.0"
-    "quay.io/csiaddons/k8s-sidecar:v0.8.0"
+    "quay.io/csiaddons/k8s-controller:latest"
+    "quay.io/csiaddons/k8s-sidecar:v0.11.0"
     "gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0"
     "quay.io/cephcsi/cephcsi:v3.9.0"
 )
@@ -554,8 +554,8 @@ kubectl --context=dr2 apply -f https://raw.githubusercontent.com/csi-addons/kube
 
 # Patch imagePullPolicy to avoid pulling from internet for local minikube environment
 log_info "Patching CSI addons controller imagePullPolicy..."
-kubectl --context=dr1 patch deployment csi-addons-controller-manager -n csi-addons-system -p '{"spec":{"template":{"spec":{"containers":[{"name":"manager","imagePullPolicy":"IfNotPresent","image":"quay.io/csiaddons/k8s-controller:v0.8.0"}]}}}}' || true
-kubectl --context=dr2 patch deployment csi-addons-controller-manager -n csi-addons-system -p '{"spec":{"template":{"spec":{"containers":[{"name":"manager","imagePullPolicy":"IfNotPresent","image":"quay.io/csiaddons/k8s-controller:v0.8.0"}]}}}}' || true
+kubectl --context=dr1 patch deployment csi-addons-controller-manager -n csi-addons-system -p '{"spec":{"template":{"spec":{"containers":[{"name":"manager","imagePullPolicy":"IfNotPresent","image":"quay.io/csiaddons/k8s-controller:latest"}]}}}}' || true
+kubectl --context=dr2 patch deployment csi-addons-controller-manager -n csi-addons-system -p '{"spec":{"template":{"spec":{"containers":[{"name":"manager","imagePullPolicy":"IfNotPresent","image":"quay.io/csiaddons/k8s-controller:latest"}]}}}}' || true
 
 # Wait for controller to be ready
 log_info "Waiting for CSI addons controllers to be ready..."

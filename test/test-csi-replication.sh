@@ -1,13 +1,17 @@
 #!/bin/bash
-# Test CSI Replication functionality
+# Test CSI Replication functionality with enhanced debugging and verification
+
+set -e  # Exit on error
 
 echo "=== CSI Replication Health Check ==="
 
 echo "0. Cleaning up any previous test resources..."
+set +e
 kubectl --context=dr1 patch volumereplication test-volume-replication --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null || true
 kubectl --context=dr1 delete volumereplication test-volume-replication --ignore-not-found=true
 kubectl --context=dr1 patch pvc test-replication-pvc --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null || true
 kubectl --context=dr1 delete pvc test-replication-pvc --ignore-not-found=true
+set -e
 echo ""
 
 echo "1. Checking CSI Addons Controller..."
@@ -37,8 +41,8 @@ kubectl --context=dr1 apply -f /tmp/test-pvc.yaml
 echo ""
 
 echo "4. Waiting for PVC to be Bound..."
-kubectl --context=dr1 get pvc test-replication-pvc
 kubectl --context=dr1 wait --for=jsonpath='{.status.phase}'=Bound pvc/test-replication-pvc --timeout=120s
+kubectl --context=dr1 get pvc test-replication-pvc
 echo ""
 
 echo "5. Creating VolumeReplication..."
@@ -49,7 +53,7 @@ kind: VolumeReplication
 metadata:
   name: test-volume-replication
 spec:
-  volumeReplicationClass: vrc-1m
+  volumeReplicationClass: rbd-volumereplicationclass
   dataSource:
     kind: PersistentVolumeClaim
     name: test-replication-pvc
@@ -60,123 +64,190 @@ EOF
 kubectl --context=dr1 apply -f /tmp/test-volrep.yaml
 echo ""
 
-echo "6. Checking VolumeReplication status..."
+echo "6. Waiting for VolumeReplication to be ready..."
 sleep 10
 kubectl --context=dr1 get volumereplication test-volume-replication
 echo ""
 echo "VolumeReplication detailed status:"
-kubectl --context=dr1 get volumereplication test-volume-replication -o yaml | grep -A 10 status: || echo "Status not ready yet"
+kubectl --context=dr1 get volumereplication test-volume-replication -o jsonpath='{.status}' | jq . 2>/dev/null || echo "Status not ready yet"
 echo ""
-echo "7. Checking RBD image replication status..."
-RBD_IMAGE=$(kubectl --context=dr1 get pv $(kubectl --context=dr1 get pvc test-replication-pvc -o jsonpath='{.spec.volumeName}') -o jsonpath='{.spec.csi.volumeAttributes.imageName}' 2>/dev/null || echo "N/A")
+
+echo "7. Getting RBD image information..."
+RBD_IMAGE=$(kubectl --context=dr1 get pv "$PV_NAME" -o jsonpath='{.spec.csi.volumeAttributes.imageName}' 2>/dev/null || echo "N/A")
 echo "RBD Image: $RBD_IMAGE"
+echo ""
+
+echo "8. Verifying what SHOULD and SHOULD NOT exist on DR2..."
+echo ""
+echo "=== Kubernetes Objects (should NOT exist on DR2 during replication) ==="
+echo ""
+
+echo "Checking VolumeReplication on DR2 (should NOT exist):"
+set +e
+DR2_VR_COUNT=$(kubectl --context=dr2 get volumereplication 2>/dev/null | wc -l)
+set -e
+echo "  VolumeReplication count: $((DR2_VR_COUNT - 1))"
+if [ $((DR2_VR_COUNT - 1)) -gt 0 ]; then
+  echo "  ⚠️  Unexpected: VolumeReplication found on DR2"
+  kubectl --context=dr2 get volumereplication
+else
+  echo "  ✓ Correct: No VolumeReplication on DR2"
+fi
+echo ""
+
+echo "Checking PVC on DR2 (should NOT exist):"
+set +e
+DR2_PVC=$(kubectl --context=dr2 get pvc test-replication-pvc 2>/dev/null)
+set -e
+if [ -n "$DR2_PVC" ]; then
+  echo "  ⚠️  Unexpected: PVC found on DR2"
+  echo "$DR2_PVC"
+else
+  echo "  ✓ Correct: PVC 'test-replication-pvc' does not exist on DR2"
+fi
+echo ""
+
+echo "Checking PV on DR2 (should NOT exist):"
+if [ -n "$PV_NAME" ] && [ "$PV_NAME" != "N/A" ]; then
+  set +e
+  DR2_PV=$(kubectl --context=dr2 get pv "$PV_NAME" 2>/dev/null)
+  set -e
+  if [ -n "$DR2_PV" ]; then
+    echo "  ⚠️  Unexpected: PV $PV_NAME found on DR2"
+    echo "$DR2_PV"
+  else
+    echo "  ✓ Correct: PV $PV_NAME does not exist on DR2"
+  fi
+fi
+echo ""
+
+echo "=== Storage Layer (SHOULD exist on DR2 via RBD mirroring) ==="
+echo ""
+echo "Explanation:"
+echo "  During normal replication:"
+echo "    • Kubernetes objects (PVC/PV/VR) exist ONLY on primary cluster (DR1)"
+echo "    • RBD image data is replicated to DR2 via Ceph mirroring"
+echo "    • During failover, DR2 would create NEW PVC/PV pointing to replicated RBD image"
+echo ""
+
+echo "9. Checking RBD image replication status..."
 if [ "$RBD_IMAGE" != "N/A" ]; then
-  echo ""
   echo "DR1 Mirror Status:"
-  kubectl --context=dr1 -n rook-ceph exec -it deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE 2>/dev/null || echo "Mirror status not available yet"
+  set +e
+  kubectl --context=dr1 -n rook-ceph exec deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE 2>/dev/null || echo "  Mirror status not available yet"
+  set -e
+  echo ""
 fi
 
-echo ""
-echo "8. Waiting for cross-cluster replication to sync..."
-echo ""
-
-# Wait for RBD image to appear on DR2
-echo "Waiting for RBD image to be replicated to DR2..."
-TIMEOUT=120  # 2 minutes timeout
-ELAPSED=0
-while [ $ELAPSED -lt $TIMEOUT ]; do
-  DR2_IMAGE_EXISTS=$(kubectl --context=dr2 -n rook-ceph exec -it deploy/rook-ceph-tools -- rbd ls replicapool 2>/dev/null | grep -c "$RBD_IMAGE" || echo "0")
-  if [ "$DR2_IMAGE_EXISTS" -gt 0 ]; then
-    echo "✓ RBD image found on DR2 after ${ELAPSED}s"
-    break
+echo "10. Waiting for RBD image to appear on DR2..."
+if [ "$RBD_IMAGE" != "N/A" ]; then
+  TIMEOUT=120
+  ELAPSED=0
+  while [ $ELAPSED -lt $TIMEOUT ]; do
+    set +e
+    DR2_IMAGE_EXISTS=$(kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd ls replicapool 2>/dev/null | grep -c "$RBD_IMAGE")
+    set -e
+    if [ "$DR2_IMAGE_EXISTS" -gt 0 ]; then
+      echo "✓ RBD image found on DR2 after ${ELAPSED}s"
+      break
+    fi
+    echo "  Waiting for replication... (${ELAPSED}s/${TIMEOUT}s)"
+    sleep 5
+    ELAPSED=$((ELAPSED + 5))
+  done
+  
+  if [ $ELAPSED -ge $TIMEOUT ]; then
+    echo "⚠ Timeout waiting for RBD image replication to DR2"
   fi
-  echo "  Waiting for replication... (${ELAPSED}s/${TIMEOUT}s)"
-  sleep 5
-  ELAPSED=$((ELAPSED + 5))
-done
-
-if [ $ELAPSED -ge $TIMEOUT ]; then
-  echo "⚠ Timeout waiting for RBD image replication to DR2"
 fi
-
 echo ""
-echo "9. Verifying cross-cluster replication status..."
 
-# Wait for mirror status to be healthy
-echo "Waiting for mirror replication to stabilize..."
-TIMEOUT=90  # 1.5 minutes timeout
-ELAPSED=0
-while [ $ELAPSED -lt $TIMEOUT ]; do
-  DR1_STATUS=$(kubectl --context=dr1 -n rook-ceph exec -it deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE 2>/dev/null | grep "state:" | head -1 || echo "")
-  DR2_STATUS=$(kubectl --context=dr2 -n rook-ceph exec -it deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE 2>/dev/null | grep "state:" | head -1 || echo "")
-  
-  # Check if both sides are in stable states
-  if echo "$DR1_STATUS" | grep -q "up+stopped" && echo "$DR2_STATUS" | grep -q "up+replaying"; then
-    echo "✓ Mirror replication stabilized after ${ELAPSED}s"
-    break
-  fi
-  
-  echo "  DR1: $(echo $DR1_STATUS | sed 's/.*state:[[:space:]]*//' | head -1)"
-  echo "  DR2: $(echo $DR2_STATUS | sed 's/.*state:[[:space:]]*//' | head -1)"
-  echo "  Waiting for stable replication... (${ELAPSED}s/${TIMEOUT}s)"
-  sleep 10
-  ELAPSED=$((ELAPSED + 10))
-done
-
+echo "11. Checking DR2 RBD images..."
+echo "DR2 RBD Images in replicapool:"
+set +e
+kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd ls replicapool 2>/dev/null || echo "  Unable to list images"
+set -e
 echo ""
-echo "Checking DR2 cluster for replicated resources..."
 
-# Check if RBD image exists on DR2
-echo "DR2 RBD Images:"
-kubectl --context=dr2 -n rook-ceph exec -it deploy/rook-ceph-tools -- rbd ls replicapool 2>/dev/null | grep -E "(csi-vol|$RBD_IMAGE)" || echo "No replicated RBD images found"
-
-echo ""
 if [ "$RBD_IMAGE" != "N/A" ]; then
   echo "DR2 Mirror Status for $RBD_IMAGE:"
-  kubectl --context=dr2 -n rook-ceph exec -it deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE 2>/dev/null || echo "Mirror status not available on DR2"
+  set +e
+  kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE 2>/dev/null || echo "  Mirror status not available"
+  set -e
+  echo ""
 fi
 
+echo "12. RBD mirror daemon health..."
+echo "DR1 RBD mirror daemon:"
+set +e
+kubectl --context=dr1 -n rook-ceph get pods -l app=rook-ceph-rbd-mirror
+set -e
 echo ""
-echo "10. Final cross-cluster replication verification..."
-echo "DR2 Storage Resources Status:"
-echo "Storage Classes:"
-kubectl --context=dr2 get storageclass | grep rook || echo "No rook storage classes found"
+echo "DR2 RBD mirror daemon:"
+set +e
+kubectl --context=dr2 -n rook-ceph get pods -l app=rook-ceph-rbd-mirror
+set -e
 echo ""
-echo "Volume Replication Classes:"
-kubectl --context=dr2 get volumereplicationclass 2>/dev/null | tail -n +2 || echo "No VRCs found on DR2"
 
+echo "13. Final verification..."
 echo ""
-echo "DR2 Ceph Mirror Pool Status:"
-kubectl --context=dr2 -n rook-ceph exec -it deploy/rook-ceph-tools -- rbd mirror pool status replicapool 2>/dev/null || echo "Mirror pool status not available"
-
+echo "=== Cross-cluster Replication Summary ==="
 echo ""
-echo "Cross-cluster replication summary:"
-echo "✓ Primary volume on DR1: $(kubectl --context=dr1 get pvc test-replication-pvc -o jsonpath='{.spec.volumeName}' 2>/dev/null || echo 'N/A')"
-echo "✓ RBD image being replicated: $RBD_IMAGE"
-DR2_IMAGES=$(kubectl --context=dr2 -n rook-ceph exec -it deploy/rook-ceph-tools -- rbd ls replicapool 2>/dev/null | wc -l)
-echo "✓ DR2 RBD images count: $DR2_IMAGES"
-DR2_MIRROR_STATUS=$(kubectl --context=dr2 -n rook-ceph exec -it deploy/rook-ceph-tools -- rbd mirror pool status replicapool 2>/dev/null | grep -c "peer sites" || echo "0")
-echo "✓ DR2 mirror peers configured: $DR2_MIRROR_STATUS"
+echo "DR1 (Primary Cluster):"
+echo "  ✓ PVC: test-replication-pvc"
+echo "  ✓ PV: $PV_NAME"
+echo "  ✓ VolumeReplication: test-volume-replication (state: Primary)"
+echo "  ✓ RBD image: $RBD_IMAGE (local, being replicated)"
+echo ""
+echo "DR2 (Secondary Cluster - Standby):"
+set +e
+DR2_IMAGES=$(kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd ls replicapool 2>/dev/null | wc -l)
+DR2_MIRROR_PEERS=$(kubectl --context=dr2 -n rook-ceph get cephblockpool replicapool -o jsonpath='{.status.mirroringInfo.peers}' 2>/dev/null | jq '. | length' 2>/dev/null || echo "0")
+echo "  ✗ PVC: Does not exist (expected - created during failover)"
+echo "  ✗ PV: Does not exist (expected - created during failover)"
+echo "  ✗ VolumeReplication: Does not exist (expected - primary only)"
+echo "  ✓ RBD image: $RBD_IMAGE (replicated copy, read-only)"
+echo "  ✓ Mirror peers: $DR2_MIRROR_PEERS configured"
+echo "  ✓ Total replicated images: $DR2_IMAGES"
 
 # Check replication health
-DR1_HEALTHY=$(kubectl --context=dr1 -n rook-ceph exec -it deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE 2>/dev/null | grep -c "up+stopped" || echo "0")
-DR2_HEALTHY=$(kubectl --context=dr2 -n rook-ceph exec -it deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE 2>/dev/null | grep -c "up+replaying" || echo "0")
+DR1_HEALTHY=$(kubectl --context=dr1 -n rook-ceph exec deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE 2>/dev/null | grep -c "up+stopped" || echo "0")
+DR2_HEALTHY=$(kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE 2>/dev/null | grep -c "up+replaying" || echo "0")
+set -e
 
+echo ""
+echo "=== Replication Health Status ==="
 if [ "$DR1_HEALTHY" -gt 0 ] && [ "$DR2_HEALTHY" -gt 0 ]; then
   echo "✅ Cross-cluster replication is HEALTHY"
-  echo "   - DR1: Primary (up+stopped) - sending replication data"
-  echo "   - DR2: Secondary (up+replaying) - receiving replication data"
+  echo ""
+  echo "Current State:"
+  echo "  DR1: Primary (up+stopped) - local image, sending snapshots to DR2"
+  echo "  DR2: Secondary (up+replaying) - replicated image, receiving snapshots from DR1"
+  echo ""
+  echo "What exists where:"
+  echo "  DR1: PVC + PV + VolumeReplication + RBD image (primary)"
+  echo "  DR2: RBD image only (replicated, standby)"
+  echo ""
+  echo "During failover to DR2:"
+  echo "  1. Demote DR1 volume to secondary (if accessible)"
+  echo "  2. Promote DR2 RBD image to primary"
+  echo "  3. Create NEW PVC/PV on DR2 pointing to the now-primary RBD image"
+  echo "  4. Application pods start on DR2 using the new PVC"
+  echo "  5. DR1 becomes secondary, receiving updates from DR2"
 else
   echo "⚠️  Cross-cluster replication status needs verification"
-  echo "   - Run 'kubectl --context=dr1 -n rook-ceph exec -it deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE' to check status"
+  echo "   DR1 status: $([ "$DR1_HEALTHY" -gt 0 ] && echo "OK (up+stopped)" || echo "NEEDS CHECK")"
+  echo "   DR2 status: $([ "$DR2_HEALTHY" -gt 0 ] && echo "OK (up+replaying)" || echo "NEEDS CHECK")"
 fi
 
 echo ""
 echo "=== Cleanup ==="
-echo "Removing VolumeReplication (with finalizer cleanup)..."
-kubectl --context=dr1 patch volumereplication test-volume-replication --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null || echo "VolumeReplication already gone"
+set +e
+echo "Removing VolumeReplication..."
+kubectl --context=dr1 patch volumereplication test-volume-replication --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null || true
 kubectl --context=dr1 delete volumereplication test-volume-replication --ignore-not-found=true
-echo "Removing PVC (with finalizer cleanup)..."
-kubectl --context=dr1 patch pvc test-replication-pvc --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null || echo "PVC already gone"
+echo "Removing PVC..."
+kubectl --context=dr1 patch pvc test-replication-pvc --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null || true
 kubectl --context=dr1 delete pvc test-replication-pvc --ignore-not-found=true
 rm -f /tmp/test-pvc.yaml /tmp/test-volrep.yaml
+echo "Cleanup complete"

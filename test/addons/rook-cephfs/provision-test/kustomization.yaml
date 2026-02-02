@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 ---
-namespace: rook-cephfs-test
+namespace: rook-cephfs-test-new
 
 resources:
 - namespace.yaml
