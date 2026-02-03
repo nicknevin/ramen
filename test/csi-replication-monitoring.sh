@@ -107,22 +107,6 @@ comprehensive_csi_monitoring() {
     kubectl --context=dr2 get volumesnapshotclass -o wide 2>/dev/null || echo "  No VolumeSnapshotClasses found"
     echo ""
 
-    # STORAGE USAGE & PVCS
-    echo -e "${PURPLE}=== STORAGE USAGE & PVCS ===${NC}"
-    echo "📦 PVCs using Ceph storage (DR1):"
-    kubectl --context=dr1 get pvc -A -o wide 2>/dev/null | grep -E "(NAME|rook-ceph)" | head -8 || echo "  No PVCs using Ceph storage on dr1"
-    echo "📦 PVCs using Ceph storage (DR2):"
-    kubectl --context=dr2 get pvc -A -o wide 2>/dev/null | grep -E "(NAME|rook-ceph)" | head -8 || echo "  No PVCs using Ceph storage on dr2"
-    echo ""
-
-    # ACTIVE VOLUME REPLICATIONS (moved to be near PVCs)
-    echo -e "${CYAN}=== ACTIVE VOLUME REPLICATIONS ===${NC}"
-    echo "🔄 Volume Replications (DR1):"
-    kubectl --context=dr1 get volumereplication -A -o wide 2>/dev/null | head -10 || echo "  No active volume replications on dr1"
-    echo "🔄 Volume Replications (DR2):"
-    kubectl --context=dr2 get volumereplication -A -o wide 2>/dev/null | head -10 || echo "  No active volume replications on dr2"
-    echo ""
-
     # CEPH STORAGE INFRASTRUCTURE
     echo -e "${GREEN}=== CEPH STORAGE INFRASTRUCTURE ===${NC}"
     echo "🏗️ Ceph Cluster Health (DR1):"
@@ -187,6 +171,23 @@ comprehensive_csi_monitoring() {
     echo "🪞 Check RBD images: kubectl --context=dr1 -n rook-ceph exec deployment/rook-ceph-tools -- rbd ls replicapool"
     echo "🔗 Check CSI Addons logs: kubectl --context=dr1 logs -n csi-addons-system deployment/csi-addons-controller-manager -f"
     echo "⚡ Check snapshot controller: kubectl --context=dr1 logs -n kube-system deployment/snapshot-controller -f"
+    echo ""
+
+    # STORAGE USAGE & PVCS (moved to bottom for easy detection)
+    echo -e "${PURPLE}=== STORAGE USAGE & PVCS ===${NC}"
+    echo "📦 PVCs using Ceph storage (DR1):"
+    kubectl --context=dr1 get pvc -A -o wide 2>/dev/null | grep -E "(NAME|rook-ceph)" | head -8 || echo "  No PVCs using Ceph storage on dr1"
+    echo "📦 PVCs using Ceph storage (DR2):"
+    kubectl --context=dr2 get pvc -A -o wide 2>/dev/null | grep -E "(NAME|rook-ceph)" | head -8 || echo "  No PVCs using Ceph storage on dr2"
+    echo ""
+
+    # ACTIVE VOLUME REPLICATIONS (moved to bottom for easy detection)
+    echo -e "${CYAN}=== ACTIVE VOLUME REPLICATIONS ===${NC}"
+    echo "🔄 Volume Replications (DR1):"
+    kubectl --context=dr1 get volumereplication -A -o wide 2>/dev/null | head -10 || echo "  No active volume replications on dr1"
+    echo "🔄 Volume Replications (DR2):"
+    kubectl --context=dr2 get volumereplication -A -o wide 2>/dev/null | head -10 || echo "  No active volume replications on dr2"
+    echo ""
     
     echo ""
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
