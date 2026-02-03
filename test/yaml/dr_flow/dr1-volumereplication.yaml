@@ -1,0 +1,22 @@
+# DR1 Primary Site - VolumeReplication Configuration
+# This enables RBD mirroring for disaster recovery
+# Key points:
+# - replicationState: primary - Makes DR1 the primary site
+# - autoResync: true - Automatically handles resync operations
+# - References the PVC created above
+apiVersion: replication.storage.openshift.io/v1alpha1
+kind: VolumeReplication
+metadata:
+  name: dr-flow-replication
+  namespace: default
+  labels:
+    app: dr-flow-test
+    site: dr1
+    role: primary
+spec:
+  volumeReplicationClass: rbd-volumereplicationclass
+  dataSource:
+    kind: PersistentVolumeClaim
+    name: dr-flow-pvc
+  replicationState: primary
+  autoResync: true

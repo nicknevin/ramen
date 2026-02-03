@@ -1,0 +1,22 @@
+# DR2 Recovery Site - VolumeReplication Configuration
+# This establishes DR2 as the new primary site after failover
+# Key points:
+# - replicationState: primary - Makes DR2 the new primary
+# - References the recovered PVC
+# - Enables future replication back to DR1 (or other sites)
+apiVersion: replication.storage.openshift.io/v1alpha1
+kind: VolumeReplication
+metadata:
+  name: dr-flow-replication
+  namespace: default
+  labels:
+    app: dr-flow-test
+    site: dr2
+    role: recovery
+spec:
+  volumeReplicationClass: rbd-volumereplicationclass
+  dataSource:
+    kind: PersistentVolumeClaim
+    name: dr-flow-pvc
+  replicationState: primary
+  autoResync: true

@@ -1,0 +1,37 @@
+# DR2 Recovery Site - Static PersistentVolume Template
+# This static PV points to the existing RBD image that was replicated from DR1
+# Key points:
+# - Uses the same RBD image name as the original DR1 volume
+# - Points to DR2's cluster ID
+# - Retains the original volume handle for CSI compatibility
+# - Allows K8s to access the replicated storage
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: dr-flow-pv-dr2
+  labels:
+    app: dr-flow-test
+    site: dr2
+    role: recovery
+spec:
+  accessModes:
+  - ReadWriteOnce
+  capacity:
+    storage: PLACEHOLDER_STORAGE_SIZE
+  csi:
+    driver: PLACEHOLDER_CSI_DRIVER
+    fsType: PLACEHOLDER_FS_TYPE
+    nodeStageSecretRef:
+      name: rook-csi-rbd-node
+      namespace: rook-ceph
+    volumeAttributes:
+      clusterID: PLACEHOLDER_DR2_CLUSTER_ID
+      imageFeatures: layering
+      imageName: PLACEHOLDER_RBD_IMAGE_NAME
+      journalPool: replicapool
+      pool: PLACEHOLDER_POOL_NAME
+      storage.kubernetes.io/csiProvisionerIdentity: rook-ceph.rbd.csi.ceph.com
+    volumeHandle: PLACEHOLDER_VOLUME_HANDLE
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: rook-ceph-block
+  volumeMode: Filesystem

@@ -1,0 +1,40 @@
+# DR1 Primary Site - Test Application Pod
+# This pod simulates a real application that:
+# 1. Writes test data to the persistent volume
+# 2. Keeps running to maintain the data
+# 3. Will be terminated during disaster simulation
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dr-flow-test-pod
+  namespace: default
+  labels:
+    app: dr-flow-test
+    site: dr1
+    role: primary
+spec:
+  containers:
+  - name: test-app
+    image: alpine:3.19
+    # Write unique test data and keep container running
+    command: ['sh', '-c']
+    args:
+    - |
+      echo "=== DR Flow Test Application Starting ==="
+      echo "Writing test data: ${TEST_DATA}"
+      echo "${TEST_DATA}" > /data/testfile.txt
+      echo "Data written successfully!"
+      cat /data/testfile.txt
+      echo "=== Application ready and running ==="
+      sleep 3600
+    env:
+    - name: TEST_DATA
+      value: "PLACEHOLDER_TEST_DATA"
+    volumeMounts:
+    - name: persistent-storage
+      mountPath: /data
+  volumes:
+  - name: persistent-storage
+    persistentVolumeClaim:
+      claimName: dr-flow-pvc
+  restartPolicy: Never

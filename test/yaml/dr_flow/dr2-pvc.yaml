@@ -1,0 +1,23 @@
+# DR2 Recovery Site - PersistentVolumeClaim
+# This PVC binds to the static PV created above
+# Key points:
+# - Uses volumeName to bind to specific static PV
+# - Same size as original DR1 PVC
+# - Provides K8s applications access to recovered data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dr-flow-pvc
+  namespace: default
+  labels:
+    app: dr-flow-test
+    site: dr2
+    role: recovery
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: PLACEHOLDER_STORAGE_SIZE
+  storageClassName: rook-ceph-block
+  volumeName: dr-flow-pv-dr2

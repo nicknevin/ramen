@@ -1,0 +1,19 @@
+# DR1 Primary Site - PersistentVolumeClaim
+# This creates the initial storage request on the primary cluster
+# The CSI provisioner will create an RBD image in Ceph's replicapool
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dr-flow-pvc
+  namespace: default
+  labels:
+    app: dr-flow-test
+    site: dr1
+    role: primary
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: rook-ceph-block

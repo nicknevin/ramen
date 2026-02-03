@@ -107,7 +107,15 @@ comprehensive_csi_monitoring() {
     kubectl --context=dr2 get volumesnapshotclass -o wide 2>/dev/null || echo "  No VolumeSnapshotClasses found"
     echo ""
 
-    # ACTIVE VOLUME REPLICATIONS
+    # STORAGE USAGE & PVCS
+    echo -e "${PURPLE}=== STORAGE USAGE & PVCS ===${NC}"
+    echo "📦 PVCs using Ceph storage (DR1):"
+    kubectl --context=dr1 get pvc -A -o wide 2>/dev/null | grep -E "(NAME|rook-ceph)" | head -8 || echo "  No PVCs using Ceph storage on dr1"
+    echo "📦 PVCs using Ceph storage (DR2):"
+    kubectl --context=dr2 get pvc -A -o wide 2>/dev/null | grep -E "(NAME|rook-ceph)" | head -8 || echo "  No PVCs using Ceph storage on dr2"
+    echo ""
+
+    # ACTIVE VOLUME REPLICATIONS (moved to be near PVCs)
     echo -e "${CYAN}=== ACTIVE VOLUME REPLICATIONS ===${NC}"
     echo "🔄 Volume Replications (DR1):"
     kubectl --context=dr1 get volumereplication -A -o wide 2>/dev/null | head -10 || echo "  No active volume replications on dr1"
@@ -155,14 +163,6 @@ comprehensive_csi_monitoring() {
     kubectl --context=dr1 -n kube-system get pods -l app=snapshot-controller 2>/dev/null || echo "  Snapshot controller not found on dr1"
     echo "⚡ External Snapshotter (DR2):"
     kubectl --context=dr2 -n kube-system get pods -l app=snapshot-controller 2>/dev/null || echo "  Snapshot controller not found on dr2"
-    echo ""
-
-    # ACTIVE PVCS AND STORAGE USAGE
-    echo -e "${PURPLE}=== STORAGE USAGE & PVCS ===${NC}"
-    echo "📦 PVCs using Ceph storage (DR1):"
-    kubectl --context=dr1 get pvc -A -o wide 2>/dev/null | grep -E "(NAME|rook-ceph)" | head -8 || echo "  No PVCs using Ceph storage on dr1"
-    echo "📦 PVCs using Ceph storage (DR2):"
-    kubectl --context=dr2 get pvc -A -o wide 2>/dev/null | grep -E "(NAME|rook-ceph)" | head -8 || echo "  No PVCs using Ceph storage on dr2"
     echo ""
 
     # RESOURCE METRICS
@@ -457,7 +457,7 @@ main() {
                 sleep 2
                 while true; do
                     comprehensive_csi_monitoring
-                    sleep 5
+                    sleep 10
                 done
                 ;;
             7) show_commands ;;

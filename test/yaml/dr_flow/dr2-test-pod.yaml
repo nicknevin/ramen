@@ -1,0 +1,43 @@
+# DR2 Recovery Site - Test Application Pod
+# This pod verifies successful disaster recovery by:
+# 1. Reading the data that was originally written on DR1
+# 2. Confirming data integrity across the failover
+# 3. Demonstrating application continuity on the recovery site
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dr-flow-test-pod
+  namespace: default
+  labels:
+    app: dr-flow-test
+    site: dr2
+    role: recovery
+spec:
+  containers:
+  - name: recovery-app
+    image: alpine:3.19
+    # Read and verify the recovered data
+    command: ['sh', '-c']
+    args:
+    - |
+      echo "=== DR Recovery Application Starting ==="
+      echo "Verifying recovered data..."
+      if [ -f /data/testfile.txt ]; then
+        echo "✓ Data file found!"
+        RECOVERED_DATA=$(cat /data/testfile.txt)
+        echo "Recovered data: $RECOVERED_DATA"
+        echo "=== Data recovery successful! ==="
+      else
+        echo "⚠ Data file not found - recovery failed!"
+        ls -la /data/
+      fi
+      echo "=== Application ready on recovery site ==="
+      sleep 3600
+    volumeMounts:
+    - name: recovered-storage
+      mountPath: /data
+  volumes:
+  - name: recovered-storage
+    persistentVolumeClaim:
+      claimName: dr-flow-pvc
+  restartPolicy: Never
