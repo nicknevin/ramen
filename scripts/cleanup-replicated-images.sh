@@ -31,7 +31,35 @@ cleanup_cluster_images() {
 
     echo "  Found $(echo "$images" | wc -l) CSI volume images to clean up on $cluster"
 
-    # First disable mirroring for all images
+    # Check for images in error state and handle them first
+    echo "    Checking for images in error state..."
+    local error_images=$(kubectl exec -n rook-ceph --context=$cluster deploy/rook-ceph-tools -- \
+        rbd mirror pool status $POOL_NAME --verbose 2>/dev/null | \
+        grep -B1 "state.*error" | grep "^[a-zA-Z]" | grep "csi-vol-" | sed 's/://' || true)
+    
+    if [[ -n "$error_images" ]]; then
+        echo "    Found images in error state, forcing cleanup..."
+        for img in $error_images; do
+            echo "      Force disabling mirroring and removing error image: $img"
+            kubectl exec -n rook-ceph --context=$cluster deploy/rook-ceph-tools -- \
+                rbd mirror image disable --force $POOL_NAME/$img 2>/dev/null || true
+            # Wait a moment for mirroring to fully stop
+            sleep 2
+            kubectl exec -n rook-ceph --context=$cluster deploy/rook-ceph-tools -- \
+                rbd rm $POOL_NAME/$img 2>/dev/null || true
+        done
+    fi
+
+    # Refresh image list after error cleanup
+    images=$(kubectl exec -n rook-ceph --context=$cluster deploy/rook-ceph-tools -- \
+        rbd ls $POOL_NAME 2>/dev/null | grep "^csi-vol-" || true)
+    
+    if [[ -z "$images" ]]; then
+        echo "  All images cleaned up during error state handling"
+        return 0
+    fi
+
+    # First disable mirroring for all remaining images
     for img in $images; do
         echo "    Disabling mirroring for $img on $cluster"
         if [[ "$cluster" == "dr1" ]]; then
@@ -46,14 +74,33 @@ cleanup_cluster_images() {
         fi
     done
 
-    # Then delete all images
+    # Then delete all remaining images (including snapshots)
     for img in $images; do
+        echo "    Cleaning up snapshots for $img on $cluster"
+        # Clean up snapshots first
+        local snapshots=$(kubectl exec -n rook-ceph --context=$cluster deploy/rook-ceph-tools -- \
+            rbd snap ls $POOL_NAME/$img --format=json 2>/dev/null | jq -r '.[].name' 2>/dev/null || true)
+        for snap in $snapshots; do
+            kubectl exec -n rook-ceph --context=$cluster deploy/rook-ceph-tools -- \
+                rbd snap rm $POOL_NAME/$img@$snap 2>/dev/null || true
+        done
+        
         echo "    Deleting $img from $cluster"
         kubectl exec -n rook-ceph --context=$cluster deploy/rook-ceph-tools -- \
             rbd rm $POOL_NAME/$img 2>/dev/null || true
     done
 
     echo "  Cleanup completed on $cluster"
+    
+    # Verify cleanup
+    local remaining=$(kubectl exec -n rook-ceph --context=$cluster deploy/rook-ceph-tools -- \
+        rbd ls $POOL_NAME 2>/dev/null | grep "^csi-vol-" || true)
+    if [[ -n "$remaining" ]]; then
+        echo "  Warning: Some images may still remain on $cluster:"
+        echo "$remaining"
+    else
+        echo "  ✓ All CSI volume images successfully removed from $cluster"
+    fi
 }
 
 main() {

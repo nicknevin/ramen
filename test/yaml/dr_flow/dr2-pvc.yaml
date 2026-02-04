@@ -18,6 +18,6 @@ spec:
   - ReadWriteOnce
   resources:
     requests:
-      storage: PLACEHOLDER_STORAGE_SIZE
+      storage: ${PLACEHOLDER_STORAGE_SIZE}
   storageClassName: rook-ceph-block
   volumeName: dr-flow-pv-dr2

@@ -17,21 +17,21 @@ spec:
   accessModes:
   - ReadWriteOnce
   capacity:
-    storage: PLACEHOLDER_STORAGE_SIZE
+    storage: ${PLACEHOLDER_STORAGE_SIZE}
   csi:
-    driver: PLACEHOLDER_CSI_DRIVER
-    fsType: PLACEHOLDER_FS_TYPE
+    driver: ${PLACEHOLDER_CSI_DRIVER}
+    fsType: ${PLACEHOLDER_FS_TYPE}
     nodeStageSecretRef:
       name: rook-csi-rbd-node
       namespace: rook-ceph
     volumeAttributes:
-      clusterID: PLACEHOLDER_DR2_CLUSTER_ID
+      clusterID: ${PLACEHOLDER_DR2_CLUSTER_ID}
       imageFeatures: layering
-      imageName: PLACEHOLDER_RBD_IMAGE_NAME
+      imageName: ${PLACEHOLDER_RBD_IMAGE_NAME}
       journalPool: replicapool
-      pool: PLACEHOLDER_POOL_NAME
+      pool: ${PLACEHOLDER_POOL_NAME}
       storage.kubernetes.io/csiProvisionerIdentity: rook-ceph.rbd.csi.ceph.com
-    volumeHandle: PLACEHOLDER_VOLUME_HANDLE
+    volumeHandle: ${PLACEHOLDER_VOLUME_HANDLE}
   persistentVolumeReclaimPolicy: Retain
   storageClassName: rook-ceph-block
   volumeMode: Filesystem

@@ -35,6 +35,17 @@ cleanup() {
     kubectl --context=dr2 delete pvc $DR2_PVC_NAME --ignore-not-found=true 2>/dev/null
     kubectl --context=dr2 delete pv dr-flow-pv-dr2 --ignore-not-found=true 2>/dev/null
     
+    # Cleanup RBD snapshots on DR2
+    echo "Cleaning up RBD snapshots on DR2..."
+    RBD_IMAGES=$(kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd ls replicapool 2>/dev/null | grep "csi-vol-" || true)
+    for IMAGE in $RBD_IMAGES; do
+        echo "  Cleaning snapshots for image: $IMAGE"
+        SNAPSHOTS=$(kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd snap ls replicapool/$IMAGE --format=json 2>/dev/null | jq -r '.[].name' 2>/dev/null || true)
+        for SNAP in $SNAPSHOTS; do
+            kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd snap rm replicapool/$IMAGE@$SNAP 2>/dev/null || true
+        done
+    done
+    
     # Cleanup DR1
     echo "Cleaning up DR1..."
     kubectl --context=dr1 delete pod dr-flow-test-pod --ignore-not-found=true --wait=false 2>/dev/null
@@ -44,7 +55,6 @@ cleanup() {
     kubectl --context=dr1 delete pvc $DR1_PVC_NAME --ignore-not-found=true 2>/dev/null
     set -e
     
-    rm -f /tmp/dr-flow-*.yaml
     echo "✓ Cleanup completed"
 }
 
@@ -104,22 +114,7 @@ echo "==================== PHASE 1: PRIMARY WORKLOAD ON DR1 ====================
 echo ""
 
 echo "1. Creating PVC on DR1..."
-cat > /tmp/dr-flow-pvc-dr1.yaml << EOF
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: $DR1_PVC_NAME
-  namespace: default
-spec:
-  accessModes:
-  - ReadWriteOnce
-  resources:
-    requests:
-      storage: 2Gi
-  storageClassName: rook-ceph-block
-EOF
-
-kubectl --context=dr1 apply -f /tmp/dr-flow-pvc-dr1.yaml
+kubectl --context=dr1 apply -f test/yaml/dr_flow/dr1-pvc.yaml
 echo ""
 
 echo "2. Waiting for PVC to be bound on DR1..."
@@ -133,22 +128,7 @@ echo "RBD Image: $RBD_IMAGE"
 echo ""
 
 echo "4. Creating VolumeReplication as PRIMARY on DR1..."
-cat > /tmp/dr-flow-volrep-dr1.yaml << EOF
-apiVersion: replication.storage.openshift.io/v1alpha1
-kind: VolumeReplication
-metadata:
-  name: $DR1_VR_NAME
-  namespace: default
-spec:
-  volumeReplicationClass: rbd-volumereplicationclass
-  dataSource:
-    kind: PersistentVolumeClaim
-    name: $DR1_PVC_NAME
-  replicationState: primary
-  autoResync: true
-EOF
-
-kubectl --context=dr1 apply -f /tmp/dr-flow-volrep-dr1.yaml
+kubectl --context=dr1 apply -f test/yaml/dr_flow/dr1-volumereplication.yaml
 echo ""
 
 echo "5. Waiting for primary replication to be established on DR1..."
@@ -156,27 +136,9 @@ wait_for_vr_state dr1 $DR1_VR_NAME Primary 90
 echo ""
 
 echo "6. Writing test data to volume on DR1..."
-cat > /tmp/dr-flow-test-pod.yaml << EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: dr-flow-test-pod
-  namespace: default
-spec:
-  containers:
-  - name: test
-    image: alpine:3.19
-    command: ['sh', '-c', 'echo "$TEST_DATA" > /data/testfile.txt && cat /data/testfile.txt && sleep 3600']
-    volumeMounts:
-    - name: test-vol
-      mountPath: /data
-  volumes:
-  - name: test-vol
-    persistentVolumeClaim:
-      claimName: $DR1_PVC_NAME
-EOF
-
-kubectl --context=dr1 apply -f /tmp/dr-flow-test-pod.yaml
+# Use envsubst to substitute TEST_DATA in the template
+export TEST_DATA
+envsubst < test/yaml/dr_flow/dr1-test-pod.yaml | kubectl --context=dr1 apply -f -
 echo ""
 
 echo "7. Waiting for pod to write data..."
@@ -270,19 +232,10 @@ echo ""
 echo "==================== PHASE 3: RECREATE K8S OBJECTS ON DR2 ===================="
 echo ""
 echo "NOTE: This is what a DR orchestrator (like Ramen) would do automatically!"
+echo "      Using pure CSI Replication CRDs - no direct RBD commands!"
 echo ""
 
-echo "14. Promoting RBD image to primary on DR2..."
-echo "Using rbd mirror image promote command..."
-set +e
-kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- \
-  rbd mirror image promote replicapool/$RBD_IMAGE --force 2>/dev/null
-sleep 5
-set -e
-echo "✓ RBD image promoted on DR2"
-echo ""
-
-echo "15. Creating PVC on DR2 pointing to the replicated RBD image..."
+echo "14. Creating PVC on DR2 pointing to the replicated RBD image..."
 echo ""
 echo "📝 CRITICAL STEP: We are creating a NEW PVC on DR2"
 echo "   This PVC will use a static PV pointing to the existing RBD image"
@@ -310,83 +263,37 @@ else
     echo "✓ DR2 cluster ID: $DR2_CLUSTER_ID"
 fi
 
-# Create static PV on DR2 pointing to the replicated RBD image
-cat > /tmp/dr-flow-pv-dr2.yaml << EOF
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: dr-flow-pv-dr2
-spec:
-  accessModes:
-  - ReadWriteOnce
-  capacity:
-    storage: $DR1_PV_SIZE
-  csi:
-    driver: $DR1_CSI_DRIVER
-    fsType: $DR1_CSI_FSTYPE
-    nodeStageSecretRef:
-      name: rook-csi-rbd-node
-      namespace: rook-ceph
-    volumeAttributes:
-      clusterID: $DR2_CLUSTER_ID
-      imageFeatures: layering
-      imageName: $RBD_IMAGE
-      journalPool: replicapool
-      pool: $DR1_POOL
-      storage.kubernetes.io/csiProvisionerIdentity: rook-ceph.rbd.csi.ceph.com
-    volumeHandle: $DR1_VOLUME_HANDLE
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: rook-ceph-block
-  volumeMode: Filesystem
-EOF
+# Create static PV on DR2 pointing to the replicated RBD image using template
+export PLACEHOLDER_STORAGE_SIZE="$DR1_PV_SIZE"
+export PLACEHOLDER_CSI_DRIVER="$DR1_CSI_DRIVER"
+export PLACEHOLDER_FS_TYPE="$DR1_CSI_FSTYPE"
+export PLACEHOLDER_DR2_CLUSTER_ID="$DR2_CLUSTER_ID"
+export PLACEHOLDER_RBD_IMAGE_NAME="$RBD_IMAGE"
+export PLACEHOLDER_POOL_NAME="$DR1_POOL"
+export PLACEHOLDER_VOLUME_HANDLE="$DR1_VOLUME_HANDLE"
 
-kubectl --context=dr2 apply -f /tmp/dr-flow-pv-dr2.yaml
+envsubst < test/yaml/dr_flow/dr2-static-pv-template.yaml | kubectl --context=dr2 apply -f -
 echo "✓ Static PV created on DR2"
 echo ""
 
-# Create PVC on DR2 bound to the static PV
-cat > /tmp/dr-flow-pvc-dr2.yaml << EOF
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: $DR2_PVC_NAME
-  namespace: default
-spec:
-  accessModes:
-  - ReadWriteOnce
-  resources:
-    requests:
-      storage: $DR1_PV_SIZE
-  storageClassName: rook-ceph-block
-  volumeName: dr-flow-pv-dr2
-EOF
-
-kubectl --context=dr2 apply -f /tmp/dr-flow-pvc-dr2.yaml
+envsubst < test/yaml/dr_flow/dr2-pvc.yaml | kubectl --context=dr2 apply -f -
 echo "✓ PVC created on DR2"
 echo ""
 
-echo "16. Waiting for PVC to bind on DR2..."
+echo "15. Waiting for PVC to bind on DR2..."
 kubectl --context=dr2 wait --for=jsonpath='{.status.phase}'=Bound pvc/$DR2_PVC_NAME --timeout=60s
 echo "✓ PVC bound successfully on DR2"
 echo ""
 
-echo "17. Creating VolumeReplication as PRIMARY on DR2..."
-cat > /tmp/dr-flow-volrep-dr2.yaml << EOF
-apiVersion: replication.storage.openshift.io/v1alpha1
-kind: VolumeReplication
-metadata:
-  name: $DR2_VR_NAME
-  namespace: default
-spec:
-  volumeReplicationClass: rbd-volumereplicationclass
-  dataSource:
-    kind: PersistentVolumeClaim
-    name: $DR2_PVC_NAME
-  replicationState: primary
-  autoResync: true
-EOF
-
-kubectl --context=dr2 apply -f /tmp/dr-flow-volrep-dr2.yaml
+echo "16. Creating VolumeReplication as PRIMARY on DR2..."
+echo "📝 CRITICAL: VolumeReplication CRD will handle RBD image promotion automatically!"
+echo "   Setting replicationState: primary will trigger the CSI addons controller to:"
+echo "   - Promote the replicated RBD image to primary"
+echo "   - Disable mirroring on this cluster"
+echo "   - Enable replication to other clusters"
+echo ""
+kubectl --context=dr2 apply -f test/yaml/dr_flow/dr2-volumereplication.yaml
+echo "✓ VolumeReplication CRD created - promotion will happen automatically"
 echo ""
 
 echo "Validating CSI Addons setup on DR2..."
@@ -420,7 +327,13 @@ else
 fi
 set -e
 
-echo "18. Waiting for VolumeReplication to reach Primary state on DR2..."
+echo "17. Waiting for VolumeReplication to reach Primary state on DR2..."
+echo "⏳ The CSI addons controller will now:"
+echo "   1. Detect the new VolumeReplication resource"
+echo "   2. Communicate with the RBD CSI driver"
+echo "   3. Execute 'rbd mirror image promote' automatically"
+echo "   4. Update the VR status to 'Primary'"
+echo ""
 if ! wait_for_vr_state dr2 $DR2_VR_NAME Primary 90; then
     echo ""
     echo "⚠ VolumeReplication did not reach Primary state on DR2"
@@ -454,9 +367,13 @@ if ! wait_for_vr_state dr2 $DR2_VR_NAME Primary 90; then
     echo ""
     echo "=== VolumeReplicationClass Configuration ==="
     kubectl --context=dr2 get volumereplicationclass rbd-volumereplicationclass -o yaml
+    echo ""
+    echo "=== RBD Image Status (for comparison with CRD approach) ==="
+    kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE 2>/dev/null || echo "Could not check RBD mirror status"
     set -e
     echo ""
-    echo "The test will continue for diagnostics, but failover is incomplete."
+    echo "The test will continue for diagnostics, but CRD-based failover may be incomplete."
+    echo "This could indicate the CSI addons controller is not properly processing VolumeReplication resources."
     echo ""
 else
     echo "✓ VolumeReplication reached Primary state on DR2"
@@ -466,31 +383,11 @@ fi
 echo "==================== PHASE 4: VERIFY APPLICATION ON DR2 ===================="
 echo ""
 
-echo "19. Starting application pod on DR2 with the PVC..."
-cat > /tmp/dr-flow-test-pod-dr2.yaml << EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: dr-flow-test-pod
-  namespace: default
-spec:
-  containers:
-  - name: test
-    image: alpine:3.19
-    command: ['sh', '-c', 'cat /data/testfile.txt && sleep 3600']
-    volumeMounts:
-    - name: test-vol
-      mountPath: /data
-  volumes:
-  - name: test-vol
-    persistentVolumeClaim:
-      claimName: $DR2_PVC_NAME
-EOF
-
-kubectl --context=dr2 apply -f /tmp/dr-flow-test-pod-dr2.yaml
+echo "18. Starting application pod on DR2 with the PVC..."
+kubectl --context=dr2 apply -f test/yaml/dr_flow/dr2-test-pod.yaml
 echo ""
 
-echo "20. Waiting for pod to start on DR2..."
+echo "19. Waiting for pod to start on DR2..."
 sleep 10
 if ! kubectl --context=dr2 wait --for=condition=Ready pod/dr-flow-test-pod --timeout=60s 2>/dev/null; then
     echo "⚠ Pod is not ready on DR2"
@@ -505,7 +402,7 @@ else
 fi
 echo ""
 
-echo "21. Verifying data on DR2..."
+echo "20. Verifying data on DR2..."
 set +e
 DR2_DATA=$(kubectl --context=dr2 exec dr-flow-test-pod -- cat /data/testfile.txt 2>/dev/null || echo "FAILED")
 set -e
@@ -513,7 +410,7 @@ set -e
 if [ "$DR2_DATA" = "FAILED" ]; then
     echo "⚠ Failed to read data from pod"
     echo ""
-    echo "Debugging step 21 pod issue:"
+    echo "Debugging step 20 pod issue:"
     echo "=== DR2 Pod Status ==="
     kubectl --context=dr2 get pod dr-flow-test-pod -o wide
     echo ""
