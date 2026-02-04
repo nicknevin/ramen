@@ -75,7 +75,24 @@ That's it! The `setup-csi-replication` target handles everything automatically:
 - `make start-csi-replication` is **idempotent** - safe to run multiple times
 - If clusters are already running, it will apply TLS fixes and continue normally
 - If clusters don't exist, you need `make setup-csi-replication` first
+- `make stop-csi-replication` stops clusters but keeps the VM profiles for faster restart
 - Running `make setup-csi-replication` multiple times may create duplicate resources
+
+## Troubleshooting Start/Stop Issues
+
+If `make start-csi-replication` fails after stopping:
+
+```bash
+# Check if minikube profiles exist
+minikube profile list
+
+# If dr1/dr2 profiles don't exist, clusters were deleted (not just stopped)
+# In this case, run full setup again:
+make setup-csi-replication
+
+# If profiles exist but start still fails, try:
+cd test && source ../venv && drenv start envs/rook.yaml
+```
 
 ## Duplicate Resource Management
 

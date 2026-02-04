@@ -8,6 +8,11 @@ resources:
   - https://raw.githubusercontent.com/rook/rook/release-1.18/deploy/examples/common.yaml
   - https://raw.githubusercontent.com/rook/rook/release-1.18/deploy/examples/operator.yaml
 
+images:
+  - name: docker.io/rook/ceph
+    newName: quay.io/rook/ceph
+    newTag: v1.18.9
+
 patches:
   - target:
       kind: ConfigMap

@@ -11,9 +11,9 @@ from drenv import cache
 
 
 def deploy(cluster):
-    print("Deploying rook ceph operator")
-    path = cache.get(".", "addons/rook-operator-1.18-5.yaml")
-    kubectl.apply("--filename", path, context=cluster)
+    print("Deploying rook ceph operator using kustomized configuration")
+    # Use kustomized configuration instead of raw manifest to apply our image fixes
+    kubectl.apply("-k", ".", context=cluster)
 
 
 def wait(cluster):

@@ -1,0 +1,35 @@
+# Patch to disable TLS for CSI Addons sidecars
+# This fixes the "error reading server preface: EOF" connection issues
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: csi-rbdplugin-provisioner
+  namespace: rook-ceph
+spec:
+  template:
+    spec:
+      containers:
+      - name: csi-addons
+        args:
+        - "--endpoint=$(CSI_ENDPOINT)"
+        - "--node-id=$(NODE_ID)" 
+        - "--namespace=$(POD_NAMESPACE)"
+        - "--v=5"
+        - "--secure=false"
+---
+apiVersion: apps/v1
+kind: Deployment  
+metadata:
+  name: csi-cephfsplugin-provisioner
+  namespace: rook-ceph
+spec:
+  template:
+    spec:
+      containers:
+      - name: csi-addons
+        args:
+        - "--endpoint=$(CSI_ENDPOINT)"
+        - "--node-id=$(NODE_ID)"
+        - "--namespace=$(POD_NAMESPACE)" 
+        - "--v=5"
+        - "--secure=false"

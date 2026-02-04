@@ -18,9 +18,9 @@ def deploy(cluster):
     print("Waiting until crds are established")
     kubectl.wait("--for=condition=established", "--filename", path, context=cluster)
 
-    print("Deploying snapshot-controller")
-    path = cache.get("controller", "addons/external-snapshotter-controller-8.3.yaml")
-    kubectl.apply("--filename", path, context=cluster)
+    print("Deploying snapshot-controller using kustomized configuration")
+    # Use kustomized configuration instead of raw manifest to apply our fixes
+    kubectl.apply("-k", "controller", context=cluster)
 
 
 def wait(cluster):
