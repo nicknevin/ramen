@@ -24,17 +24,17 @@ TEST_DATA="DR-FLOW-TEST-DATA-$(date +%s)"
 cleanup() {
     echo ""
     echo "=== Cleanup ==="
-    
+
     # Cleanup DR2 first
     echo "Cleaning up DR2..."
     set +e
-    kubectl --context=dr2 delete pod dr-flow-test-pod --ignore-not-found=true --wait=false 2>/dev/null
-    kubectl --context=dr2 patch volumereplication $DR2_VR_NAME --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null
-    kubectl --context=dr2 delete volumereplication $DR2_VR_NAME --ignore-not-found=true 2>/dev/null
-    kubectl --context=dr2 patch pvc $DR2_PVC_NAME --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null
-    kubectl --context=dr2 delete pvc $DR2_PVC_NAME --ignore-not-found=true 2>/dev/null
+    kubectl --context=dr2 -n default delete pod dr-flow-test-pod --ignore-not-found=true --wait=false 2>/dev/null
+    kubectl --context=dr2 -n default patch volumereplication $DR2_VR_NAME --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null
+    kubectl --context=dr2 -n default delete volumereplication $DR2_VR_NAME --ignore-not-found=true 2>/dev/null
+    kubectl --context=dr2 -n default patch pvc $DR2_PVC_NAME --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null
+    kubectl --context=dr2 -n default delete pvc $DR2_PVC_NAME --ignore-not-found=true 2>/dev/null
     kubectl --context=dr2 delete pv dr-flow-pv-dr2 --ignore-not-found=true 2>/dev/null
-    
+
     # Cleanup RBD snapshots on DR2
     echo "Cleaning up RBD snapshots on DR2..."
     RBD_IMAGES=$(kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd ls replicapool 2>/dev/null | grep "csi-vol-" || true)
@@ -45,16 +45,16 @@ cleanup() {
             kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd snap rm replicapool/$IMAGE@$SNAP 2>/dev/null || true
         done
     done
-    
+
     # Cleanup DR1
     echo "Cleaning up DR1..."
-    kubectl --context=dr1 delete pod dr-flow-test-pod --ignore-not-found=true --wait=false 2>/dev/null
-    kubectl --context=dr1 patch volumereplication $DR1_VR_NAME --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null
-    kubectl --context=dr1 delete volumereplication $DR1_VR_NAME --ignore-not-found=true 2>/dev/null
-    kubectl --context=dr1 patch pvc $DR1_PVC_NAME --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null
-    kubectl --context=dr1 delete pvc $DR1_PVC_NAME --ignore-not-found=true 2>/dev/null
+    kubectl --context=dr1 -n default delete pod dr-flow-test-pod --ignore-not-found=true --wait=false 2>/dev/null
+    kubectl --context=dr1 -n default patch volumereplication $DR1_VR_NAME --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null
+    kubectl --context=dr1 -n default delete volumereplication $DR1_VR_NAME --ignore-not-found=true 2>/dev/null
+    kubectl --context=dr1 -n default patch pvc $DR1_PVC_NAME --type='merge' -p='{"metadata":{"finalizers":[]}}' 2>/dev/null
+    kubectl --context=dr1 -n default delete pvc $DR1_PVC_NAME --ignore-not-found=true 2>/dev/null
     set -e
-    
+
     echo "✓ Cleanup completed"
 }
 
@@ -72,25 +72,25 @@ wait_for_vr_state() {
     local vr_name="$2"
     local expected_state="$3"
     local timeout="${4:-90}"
-    
+
     echo "⏳ Waiting for VolumeReplication '$vr_name' to reach '$expected_state' state on $context (timeout: ${timeout}s)..."
     local elapsed=0
-    
+
     while [ $elapsed -lt $timeout ]; do
         set +e
-        local current_state=$(kubectl --context=$context get volumereplication $vr_name -o jsonpath='{.status.state}' 2>/dev/null || echo "Unknown")
+        local current_state=$(kubectl --context=$context -n default get volumereplication $vr_name -o jsonpath='{.status.state}' 2>/dev/null || echo "Unknown")
         set -e
         echo "  Current state: $current_state (${elapsed}s/${timeout}s)"
-        
+
         if [ "$current_state" = "$expected_state" ]; then
             echo "✓ VolumeReplication reached '$expected_state' state after ${elapsed}s"
             return 0
         fi
-        
+
         sleep 5
         elapsed=$((elapsed + 5))
     done
-    
+
     echo "⚠ Timeout waiting for '$expected_state' state on $context"
     return 1
 }
@@ -99,13 +99,13 @@ wait_for_vr_state() {
 get_rbd_image_name() {
     local context="$1"
     local pvc_name="$2"
-    
-    local pv_name=$(kubectl --context=$context get pvc $pvc_name -o jsonpath='{.spec.volumeName}' 2>/dev/null || echo "")
+
+    local pv_name=$(kubectl --context=$context -n default get pvc $pvc_name -o jsonpath='{.spec.volumeName}' 2>/dev/null || echo "")
     if [ -z "$pv_name" ]; then
         echo ""
         return
     fi
-    
+
     local rbd_image=$(kubectl --context=$context get pv $pv_name -o jsonpath='{.spec.csi.volumeAttributes.imageName}' 2>/dev/null || echo "")
     echo "$rbd_image"
 }
@@ -118,7 +118,7 @@ kubectl --context=dr1 apply -f test/yaml/dr_flow/dr1-pvc.yaml
 echo ""
 
 echo "2. Waiting for PVC to be bound on DR1..."
-kubectl --context=dr1 wait --for=jsonpath='{.status.phase}'=Bound pvc/$DR1_PVC_NAME --timeout=120s
+kubectl --context=dr1 -n default wait --for=jsonpath='{.status.phase}'=Bound pvc/$DR1_PVC_NAME --timeout=120s
 echo "✓ PVC bound successfully on DR1"
 echo ""
 
@@ -143,12 +143,12 @@ echo ""
 
 echo "7. Waiting for pod to write data..."
 sleep 10
-kubectl --context=dr1 wait --for=condition=Ready pod/dr-flow-test-pod --timeout=60s 2>/dev/null || true
+kubectl --context=dr1 -n default wait --for=condition=Ready pod/dr-flow-test-pod --timeout=60s 2>/dev/null || true
 echo ""
 
 echo "8. Verifying data was written on DR1..."
 set +e
-DR1_DATA=$(kubectl --context=dr1 exec dr-flow-test-pod -- cat /data/testfile.txt 2>/dev/null || echo "FAILED")
+DR1_DATA=$(kubectl --context=dr1 -n default exec dr-flow-test-pod -- cat /data/testfile.txt 2>/dev/null || echo "FAILED")
 set -e
 if [ "$DR1_DATA" = "$TEST_DATA" ]; then
     echo "✓ Data verified on DR1: $DR1_DATA"
@@ -166,7 +166,7 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     DR2_IMAGE_EXISTS=$(kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd ls replicapool 2>/dev/null | grep -c "$RBD_IMAGE")
     MIRROR_STATUS=$(kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd mirror image status replicapool/$RBD_IMAGE 2>/dev/null | grep -c "up+replaying" || echo "0")
     set -e
-    
+
     if [ "$DR2_IMAGE_EXISTS" -gt 0 ] && [ "$MIRROR_STATUS" -gt 0 ]; then
         echo "✓ RBD image replicated to DR2 and actively mirroring after ${ELAPSED}s"
         break
@@ -200,13 +200,13 @@ echo ""
 echo "10. Current state before failover:"
 echo ""
 echo "DR1 (Primary):"
-kubectl --context=dr1 get pvc $DR1_PVC_NAME -o wide
-kubectl --context=dr1 get volumereplication $DR1_VR_NAME -o wide
+kubectl --context=dr1 -n default get pvc $DR1_PVC_NAME -o wide
+kubectl --context=dr1 -n default get volumereplication $DR1_VR_NAME -o wide
 echo ""
 echo "DR2 (Secondary - Storage Layer Only):"
 set +e
-echo "  PVC: $(kubectl --context=dr2 get pvc $DR2_PVC_NAME 2>&1 | grep -q 'not found' && echo 'Does not exist (expected)' || echo 'EXISTS')"
-echo "  VR:  $(kubectl --context=dr2 get volumereplication $DR2_VR_NAME 2>&1 | grep -q 'not found' && echo 'Does not exist (expected)' || echo 'EXISTS')"
+echo "  PVC: $(kubectl --context=dr2 -n default get pvc $DR2_PVC_NAME 2>&1 | grep -q 'not found' && echo 'Does not exist (expected)' || echo 'EXISTS')"
+echo "  VR:  $(kubectl --context=dr2 -n default get volumereplication $DR2_VR_NAME 2>&1 | grep -q 'not found' && echo 'Does not exist (expected)' || echo 'EXISTS')"
 echo "  RBD: $(kubectl --context=dr2 -n rook-ceph exec deploy/rook-ceph-tools -- rbd ls replicapool 2>/dev/null | grep -c "$RBD_IMAGE") image(s) replicated"
 set -e
 echo ""
@@ -215,7 +215,7 @@ echo "==================== PHASE 2: DISASTER RECOVERY FAILOVER =================
 echo ""
 
 echo "11. Simulating disaster - Demoting DR1 volume to secondary..."
-kubectl --context=dr1 patch volumereplication $DR1_VR_NAME \
+kubectl --context=dr1 -n default patch volumereplication $DR1_VR_NAME \
   --type='merge' -p='{"spec":{"replicationState":"secondary"}}'
 echo "✓ Demote request sent to DR1"
 echo ""
@@ -225,7 +225,7 @@ wait_for_vr_state dr1 $DR1_VR_NAME Secondary 90
 echo ""
 
 echo "13. Stopping application pod on DR1..."
-kubectl --context=dr1 delete pod dr-flow-test-pod --ignore-not-found=true --wait=true
+kubectl --context=dr1 -n default delete pod dr-flow-test-pod --ignore-not-found=true --wait=true
 echo "✓ DR1 application stopped"
 echo ""
 
@@ -242,7 +242,7 @@ echo "   This PVC will use a static PV pointing to the existing RBD image"
 echo ""
 
 # First, get the PV details from DR1 to recreate similar on DR2
-DR1_PV_NAME=$(kubectl --context=dr1 get pvc $DR1_PVC_NAME -o jsonpath='{.spec.volumeName}')
+DR1_PV_NAME=$(kubectl --context=dr1 -n default get pvc $DR1_PVC_NAME -o jsonpath='{.spec.volumeName}')
 DR1_PV_SIZE=$(kubectl --context=dr1 get pv $DR1_PV_NAME -o jsonpath='{.spec.capacity.storage}')
 DR1_CSI_DRIVER=$(kubectl --context=dr1 get pv $DR1_PV_NAME -o jsonpath='{.spec.csi.driver}')
 DR1_CSI_FSTYPE=$(kubectl --context=dr1 get pv $DR1_PV_NAME -o jsonpath='{.spec.csi.fsType}')
@@ -281,7 +281,7 @@ echo "✓ PVC created on DR2"
 echo ""
 
 echo "15. Waiting for PVC to bind on DR2..."
-kubectl --context=dr2 wait --for=jsonpath='{.status.phase}'=Bound pvc/$DR2_PVC_NAME --timeout=60s
+kubectl --context=dr2 -n default wait --for=jsonpath='{.status.phase}'=Bound pvc/$DR2_PVC_NAME --timeout=60s
 echo "✓ PVC bound successfully on DR2"
 echo ""
 
@@ -341,10 +341,10 @@ if ! wait_for_vr_state dr2 $DR2_VR_NAME Primary 90; then
     echo "Debugging information:"
     echo "=== VolumeReplication Status on DR2 ==="
     set +e
-    kubectl --context=dr2 get volumereplication $DR2_VR_NAME -o yaml
+    kubectl --context=dr2 -n default get volumereplication $DR2_VR_NAME -o yaml
     echo ""
     echo "=== VolumeReplication Events ==="
-    kubectl --context=dr2 describe volumereplication $DR2_VR_NAME
+    kubectl --context=dr2 -n default describe volumereplication $DR2_VR_NAME
     echo ""
     echo "=== CSI Addons Controller Pods ==="
     kubectl --context=dr2 get pods -n csi-addons-system
@@ -389,14 +389,14 @@ echo ""
 
 echo "19. Waiting for pod to start on DR2..."
 sleep 10
-if ! kubectl --context=dr2 wait --for=condition=Ready pod/dr-flow-test-pod --timeout=60s 2>/dev/null; then
+if ! kubectl --context=dr2 -n default wait --for=condition=Ready pod/dr-flow-test-pod --timeout=60s 2>/dev/null; then
     echo "⚠ Pod is not ready on DR2"
     echo ""
     echo "Pod status:"
-    kubectl --context=dr2 get pod dr-flow-test-pod -o wide
+    kubectl --context=dr2 -n default get pod dr-flow-test-pod -o wide
     echo ""
     echo "Pod events:"
-    kubectl --context=dr2 describe pod dr-flow-test-pod | tail -30
+    kubectl --context=dr2 -n default describe pod dr-flow-test-pod | tail -30
 else
     echo "✓ Pod is ready on DR2"
 fi
@@ -404,7 +404,7 @@ echo ""
 
 echo "20. Verifying data on DR2..."
 set +e
-DR2_DATA=$(kubectl --context=dr2 exec dr-flow-test-pod -- cat /data/testfile.txt 2>/dev/null || echo "FAILED")
+DR2_DATA=$(kubectl --context=dr2 -n default exec dr-flow-test-pod -- cat /data/testfile.txt 2>/dev/null || echo "FAILED")
 set -e
 
 if [ "$DR2_DATA" = "FAILED" ]; then
@@ -412,16 +412,16 @@ if [ "$DR2_DATA" = "FAILED" ]; then
     echo ""
     echo "Debugging step 20 pod issue:"
     echo "=== DR2 Pod Status ==="
-    kubectl --context=dr2 get pod dr-flow-test-pod -o wide
+    kubectl --context=dr2 -n default get pod dr-flow-test-pod -o wide
     echo ""
     echo "=== DR2 Pod Events ==="
-    kubectl --context=dr2 describe pod dr-flow-test-pod | grep -A 20 "Events:"
+    kubectl --context=dr2 -n default describe pod dr-flow-test-pod | grep -A 20 "Events:"
     echo ""
     echo "=== DR2 Pod Logs ==="
-    kubectl --context=dr2 logs dr-flow-test-pod 2>&1 || echo "No logs available"
+    kubectl --context=dr2 -n default logs dr-flow-test-pod 2>&1 || echo "No logs available"
     echo ""
     echo "=== Checking if volume is mounted ==="
-    kubectl --context=dr2 exec dr-flow-test-pod -- ls -la /data 2>&1 || echo "Cannot access mount point"
+    kubectl --context=dr2 -n default exec dr-flow-test-pod -- ls -la /data 2>&1 || echo "Cannot access mount point"
     echo ""
 else
     echo "✓ Data successfully read from DR2: $DR2_DATA"
@@ -432,13 +432,13 @@ echo "==================== FINAL STATE VERIFICATION ===================="
 echo ""
 
 echo "DR1 (Former Primary - Now Secondary):"
-kubectl --context=dr1 get pvc $DR1_PVC_NAME -o wide 2>/dev/null || echo "  PVC: Deleted or not accessible"
-kubectl --context=dr1 get volumereplication $DR1_VR_NAME -o wide 2>/dev/null || echo "  VR: State: Secondary"
+kubectl --context=dr1 -n default get pvc $DR1_PVC_NAME -o wide 2>/dev/null || echo "  PVC: Deleted or not accessible"
+kubectl --context=dr1 -n default get volumereplication $DR1_VR_NAME -o wide 2>/dev/null || echo "  VR: State: Secondary"
 echo ""
 
 echo "DR2 (New Primary - Recovered Site):"
-kubectl --context=dr2 get pvc $DR2_PVC_NAME -o wide
-kubectl --context=dr2 get volumereplication $DR2_VR_NAME -o wide
+kubectl --context=dr2 -n default get pvc $DR2_PVC_NAME -o wide
+kubectl --context=dr2 -n default get volumereplication $DR2_VR_NAME -o wide
 echo ""
 
 echo "==================== DATA VERIFICATION ===================="

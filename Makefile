@@ -343,10 +343,10 @@ fix-csi-addons-tls: ## Apply TLS configuration fix to CSI Addons controllers and
 setup-csi-storage-resources: ## Setup storage classes, pools, and volume replication classes on both clusters.
 	@echo "Creating RBD storage classes and pools on both clusters..."
 	@# Setup rook-pool addon on dr1
-	cd test/addons/rook-pool && ./start dr1
+	source ./venv && cd test/addons/rook-pool && ./start dr1
 	@echo "✓ Storage resources created on dr1"
 	@# Setup rook-pool addon on dr2  
-	cd test/addons/rook-pool && ./start dr2
+	source ./venv && cd test/addons/rook-pool && ./start dr2
 	@echo "✓ Storage resources created on dr2"
 	@echo ""
 	@echo "Creating Volume Replication Classes on both clusters..."
@@ -372,18 +372,18 @@ setup-rbd-mirroring: ## Setup RBD mirroring between dr1 and dr2 clusters.
 	@echo "Ensuring Ceph toolbox is available on both clusters..."
 	@# Deploy rook-ceph-tools if not already present
 	@kubectl --context=dr1 -n rook-ceph get deployment rook-ceph-tools >/dev/null 2>&1 || \
-		(cd test/addons/rook-toolbox && ./start dr1)
+		(source ./venv && cd test/addons/rook-toolbox && ./start dr1)
 	@kubectl --context=dr2 -n rook-ceph get deployment rook-ceph-tools >/dev/null 2>&1 || \
-		(cd test/addons/rook-toolbox && ./start dr2)
+		(source ./venv && cd test/addons/rook-toolbox && ./start dr2)
 	@echo "✓ Ceph toolbox available on both clusters"
 	@echo ""
 	@echo "Ensuring Ceph clusters are deployed on both dr1 and dr2..."
 	@# Check if CephCluster exists on dr2, deploy if missing
 	@if ! kubectl --context=dr2 -n rook-ceph get cephcluster my-cluster >/dev/null 2>&1; then \
 		echo "⚠ CephCluster not found on dr2, deploying..."; \
-		cd test/addons/rook-cluster && ./start dr2; \
-		cd test/addons/rook-pool && ./start dr2; \
-		cd test/addons/rook-toolbox && ./start dr2; \
+		source ./venv && cd test/addons/rook-cluster && ./start dr2; \
+		source ./venv && cd test/addons/rook-pool && ./start dr2; \
+		source ./venv && cd test/addons/rook-toolbox && ./start dr2; \
 		echo "✓ Ceph cluster deployed on dr2"; \
 	else \
 		echo "✓ Ceph clusters exist on both dr1 and dr2"; \
@@ -391,7 +391,7 @@ setup-rbd-mirroring: ## Setup RBD mirroring between dr1 and dr2 clusters.
 	@echo ""
 	@echo "Configuring RBD mirroring between dr1 and dr2 clusters..."
 	@# Run the rbd-mirror addon to establish cross-cluster mirroring
-	cd test/addons/rbd-mirror && ./start dr1 dr2
+	source ./venv && cd test/addons/rbd-mirror && ./start dr1 dr2
 	@echo "✓ RBD mirroring configured between clusters"
 	@echo ""
 	@echo "Waiting for RBD mirror daemons to be ready..."
@@ -403,27 +403,6 @@ setup-rbd-mirroring: ## Setup RBD mirroring between dr1 and dr2 clusters.
 .PHONY: delete-csi-replication
 delete-csi-replication: venv ## Delete CSI Replication clusters completely.
 	cd test && source ../venv && drenv delete envs/rook.yaml
-
-.PHONY: clean-csi-duplicates
-clean-csi-duplicates: ## Clean up duplicate resources that may occur when running setup multiple times.
-	@echo "Cleaning up duplicate resources on both clusters..."
-	@echo "Removing duplicate storage classes..."
-	@# Keep only the first rook-ceph-block StorageClass on each cluster
-	@kubectl --context=dr1 get storageclass -o name | grep rook-ceph-block | tail -n +2 | xargs -r kubectl --context=dr1 delete --ignore-not-found=true || true
-	@kubectl --context=dr2 get storageclass -o name | grep rook-ceph-block | tail -n +2 | xargs -r kubectl --context=dr2 delete --ignore-not-found=true || true
-	@echo "Removing duplicate Ceph block pools..."
-	@# Keep only the first replicapool CephBlockPool on each cluster  
-	@kubectl --context=dr1 -n rook-ceph get cephblockpool -o name | grep replicapool | tail -n +2 | xargs -r kubectl --context=dr1 -n rook-ceph delete --ignore-not-found=true || true
-	@kubectl --context=dr2 -n rook-ceph get cephblockpool -o name | grep replicapool | tail -n +2 | xargs -r kubectl --context=dr2 -n rook-ceph delete --ignore-not-found=true || true
-	@echo "Removing duplicate rook-ceph-operator deployments..."
-	@# Keep only one rook-ceph-operator deployment per cluster
-	@kubectl --context=dr1 -n rook-ceph get deployment -o name | grep rook-ceph-operator | tail -n +2 | xargs -r kubectl --context=dr1 -n rook-ceph delete --ignore-not-found=true || true
-	@kubectl --context=dr2 -n rook-ceph get deployment -o name | grep rook-ceph-operator | tail -n +2 | xargs -r kubectl --context=dr2 -n rook-ceph delete --ignore-not-found=true || true
-	@echo "Removing duplicate snapshot-controller deployments..."
-	@# Keep only one snapshot-controller deployment per cluster
-	@kubectl --context=dr1 -n kube-system get deployment -o name | grep snapshot-controller | tail -n +2 | xargs -r kubectl --context=dr1 -n kube-system delete --ignore-not-found=true || true
-	@kubectl --context=dr2 -n kube-system get deployment -o name | grep snapshot-controller | tail -n +2 | xargs -r kubectl --context=dr2 -n kube-system delete --ignore-not-found=true || true
-	@echo "✅ Duplicate resource cleanup completed"
 
 .PHONY: status-csi-replication
 status-csi-replication: ## Check status of CSI Replication clusters.
