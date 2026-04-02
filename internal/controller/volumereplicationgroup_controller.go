@@ -2110,6 +2110,10 @@ func (v *VRGInstance) updateVRGConditions() {
 	v.logAndSetConditions(VRGConditionTypeAutoCleanup,
 		v.aggregateVRGAutoCleanupCondition())
 
+	if destInfoCond := v.aggregateVolRepDestinationInfoAvailableCondition(); destInfoCond != nil {
+		v.logAndSetConditions(VRGConditionTypeDestinationInfoAvailable, destInfoCond)
+	}
+
 	v.updateVRGLastGroupSyncTime()
 	v.updateVRGLastGroupSyncDuration()
 	v.updateLastGroupSyncBytes()

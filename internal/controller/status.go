@@ -55,6 +55,10 @@ const (
 	// Indicates no conflict in PVC and Kubernetes resource data
 	// between primary and secondary clusters.
 	VRGConditionTypeNoClusterDataConflict = "NoClusterDataConflict"
+
+	// Indicates destination volume info is available from the VolumeReplication resource.
+	// Only set when VRs report this condition; absent means not applicable.
+	VRGConditionTypeDestinationInfoAvailable = "DestinationInfoAvailable"
 )
 
 // VRG condition reasons
