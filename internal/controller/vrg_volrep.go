@@ -203,8 +203,9 @@ func (v *VRGInstance) processPVCsAsPrimary() map[types.NamespacedName][]*corev1.
 // reconcileVolRepsAsSecondary reconciles VolumeReplication resources for the VRG as secondary
 //
 //nolint:gocognit,cyclop,funlen
-func (v *VRGInstance) reconcileVolRepsAsSecondary() bool {
-	requeue := false
+func (v *VRGInstance) reconcileVolRepsAsSecondary() (requeue bool) {
+	v.log.V(1).Info("entry reconcileVolRepsAsSecondary")
+	defer func() { v.log.V(1).Info("exit reconcileVolRepsAsSecondary", "requeue", requeue) }()
 
 	// When transitioning to Secondary after a dry-run abort, cleanup snapshots first
 	// OR when staying Primary but promoting from test to real failover
@@ -249,6 +250,9 @@ func (v *VRGInstance) processPVCAsSecondary(
 	log logr.Logger,
 	groupPVCs map[types.NamespacedName][]*corev1.PersistentVolumeClaim,
 ) bool {
+	log.V(1).Info("entry processPVCAsSecondary", "pvcName", pvc.Name)
+	defer log.V(1).Info("exit processPVCAsSecondary", "pvcName", pvc.Name)
+
 	if !slices.Contains(pvc.Finalizers, PvcVRFinalizerProtected) {
 		log.Info("pvc does not contain VR protection finalizer. Skipping it")
 		v.pvcStatusDeleteIfPresent(pvc.Namespace, pvc.Name, log)
@@ -284,6 +288,9 @@ func (v *VRGInstance) addPVCToGroupPVCs(
 }
 
 func (v *VRGInstance) reconcilePVCVRAsSecondary(pvc *corev1.PersistentVolumeClaim, log logr.Logger) bool {
+	log.V(1).Info("entry reconcilePVCVRAsSecondary", "pvcName", pvc.Name)
+	defer log.V(1).Info("exit reconcilePVCVRAsSecondary", "pvcName", pvc.Name)
+
 	vrMissing, requeueResult := v.reconcileMissingVR(pvc, log)
 	if vrMissing || requeueResult {
 		return true
@@ -596,12 +603,16 @@ func (v *VRGInstance) preparePVCForVRDeletion(pvc *corev1.PersistentVolumeClaim,
 ) error {
 	vrg := v.instance
 
+	log.V(1).Info("entry preparePVCForVRDeletion", "pvcName", pvc.Name)
+	defer log.V(1).Info("exit preparePVCForVRDeletion", "pvcName", pvc.Name)
+
 	pv, err := v.getPVFromPVC(pvc)
 	if err != nil {
 		log.Error(err, "Failed to get PV for VR deletion")
 
 		return err
 	}
+	log.V(1).Info("preparePVCForVRDeletion", "pvName", pv.Name, "phase", pv.Status.Phase, "reclaimPolicy", pv.Spec.PersistentVolumeReclaimPolicy)
 	// For Async mode, we want to change the retention policy back to delete
 	// and remove the annotation.
 	// For Sync mode, we don't want to set the retention policy to delete as
@@ -613,11 +624,12 @@ func (v *VRGInstance) preparePVCForVRDeletion(pvc *corev1.PersistentVolumeClaim,
 	// PVC may not be deleted). This is achieved by clearing the required claim ref.
 	// such that the PV can bind back to a recreated PVC. func ref.: updateExistingPVForSync
 	if v.instance.Spec.Async != nil || v.instance.Spec.ReplicationState == ramendrv1alpha1.Primary {
-		undoPVRetention(&pv)
+		undoPVRetention(&pv, log)
 	}
 
 	delete(pv.Annotations, pvcVRAnnotationArchivedKey)
 
+	log.V(1).Info("preparePVCForVRDeletion before update", "pvName", pv.Name, "phase", pv.Status.Phase, "reclaimPolicy", pv.Spec.PersistentVolumeReclaimPolicy, "annotations", pv.GetAnnotations())
 	if err := v.reconciler.Update(v.ctx, &pv); err != nil {
 		log.Error(err, "Failed to update PersistentVolume for VR deletion")
 
@@ -626,7 +638,7 @@ func (v *VRGInstance) preparePVCForVRDeletion(pvc *corev1.PersistentVolumeClaim,
 			pvc.Spec.VolumeName, pvc.Namespace, pvc.Name, v.instance.Namespace, v.instance.Name, err)
 	}
 
-	log.Info("Deleted ramen annotations from PersistentVolume", "pv", pv.Name)
+	log.Info("Deleted ramen annotations from PersistentVolume", "pv", pv.Name, "reclaimPolicy", pv.Spec.PersistentVolumeReclaimPolicy)
 
 	ownerRemoved := rmnutil.ObjectOwnerUnsetIfSet(pvc, vrg)
 	// Remove VR finalizer from PVC and the annotation (PVC maybe left behind, so remove the annotation)
@@ -683,7 +695,10 @@ func (v *VRGInstance) retainPVForPVC(pvc corev1.PersistentVolumeClaim, log logr.
 }
 
 // undoPVRetention updates the PV reclaim policy back to its saved state
-func undoPVRetention(pv *corev1.PersistentVolume) {
+func undoPVRetention(pv *corev1.PersistentVolume, log logr.Logger) {
+	log.V(1).Info("entry undoPVRetention", "pvName", pv.Name, "annotations", pv.GetAnnotations())
+	defer log.V(1).Info("exit undoPVRetention", "pvName", pv.Name)
+
 	if v, ok := pv.ObjectMeta.Annotations[pvVRAnnotationRetentionKey]; !ok || v != pvVRAnnotationRetentionValue {
 		return
 	}
@@ -1128,6 +1143,9 @@ func (v *VRGInstance) pvcsUnprotectVolRep(pvcs []corev1.PersistentVolumeClaim) {
 func (v *VRGInstance) reconcileVRForDeletion(pvc *corev1.PersistentVolumeClaim, log logr.Logger) bool {
 	const requeue = true
 
+	log.V(1).Info("entry reconcileVRForDeletion", "pvcName", pvc.Name)
+	defer log.V(1).Info("exit reconcileVRForDeletion", "pvcName", pvc.Name)
+
 	pvcNamespacedName := types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}
 
 	if v.instance.Spec.ReplicationState == ramendrv1alpha1.Secondary {
@@ -1165,6 +1183,9 @@ func (v *VRGInstance) reconcileVRForDeletion(pvc *corev1.PersistentVolumeClaim, 
 
 func (v *VRGInstance) undoPVCFinalizersAndPVRetention(pvc *corev1.PersistentVolumeClaim, log logr.Logger) bool {
 	const requeue = true
+
+	log.V(1).Info("entry undoPVCFinalizersAndPVRetention", "pvcName", pvc.Name)
+	defer log.V(1).Info("exit undoPVCFinalizersAndPVRetention", "pvcName", pvc.Name)
 
 	pvcNamespacedName := types.NamespacedName{Name: pvc.Name, Namespace: pvc.Namespace}
 

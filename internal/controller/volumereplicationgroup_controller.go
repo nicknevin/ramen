@@ -631,6 +631,9 @@ func (v *VRGInstance) requeue() {
 
 //nolint:cyclop
 func (v *VRGInstance) processVRG() ctrl.Result {
+	v.log.V(1).Info("entry processVRG")
+	defer v.log.V(1).Info("exit processVRG")
+
 	if err := v.validateVRGState(); err != nil {
 		// No requeue, as there is no reconcile till user changes desired spec to a valid value
 		return v.invalid(err, "VolumeReplicationGroup state is invalid", false)
