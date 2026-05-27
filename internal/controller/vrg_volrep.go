@@ -3183,7 +3183,7 @@ func (v *VRGInstance) aggregateVolRepDestinationInfoAvailableCondition() *metav1
 		return nil
 	}
 
-	if allReady {
+	if allReady && v.errorInject["NoDestinationInfo"] != "true" {
 		return &metav1.Condition{
 			Type:               VRGConditionTypeDestinationInfoAvailable,
 			Status:             metav1.ConditionTrue,
