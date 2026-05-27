@@ -135,10 +135,6 @@ func updateVRGDestinationInfoAvailable(drpc *rmn.DRPlacementControl,
 		return false
 	}
 
-	if condition.Status == metav1.ConditionTrue && condition.ObservedGeneration == vrg.Generation {
-		return false
-	}
-
 	return genericUpdateProtectedForCondition(drpc, vrg, clusterName, VRGConditionTypeDestinationInfoAvailable,
 		"destination info availability", "waiting for destination info", "destination info")
 }

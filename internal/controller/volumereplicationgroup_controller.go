@@ -459,6 +459,15 @@ func (r *VolumeReplicationGroupReconciler) Reconcile(ctx context.Context, req ct
 
 	defer log.Info("Exiting reconcile loop")
 
+	var errorInject map[string]string
+	cm := &corev1.ConfigMap{}
+	if err := r.APIReader.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: "ramen-error-inject"}, cm); err != nil {
+		errorInject = make(map[string]string)
+	} else {
+		log.Info("Read ramen-error-inject ConfigMap")
+		errorInject = cm.Data
+	}
+
 	v := VRGInstance{
 		reconciler:        r,
 		ctx:               ctx,
@@ -471,6 +480,7 @@ func (r *VolumeReplicationGroupReconciler) Reconcile(ctx context.Context, req ct
 		namespacedName:    req.NamespacedName.String(),
 		objectStorers:     make(map[string]cachedObjectStorer),
 		storageClassCache: make(map[string]*storagev1.StorageClass),
+		errorInject:       errorInject,
 	}
 
 	// Fetch the VolumeReplicationGroup instance
@@ -572,6 +582,7 @@ type VRGInstance struct {
 	objectStorers        map[string]cachedObjectStorer
 	s3StoreAccessors     []s3StoreAccessor
 	result               ctrl.Result
+	errorInject          map[string]string
 }
 
 // struct with pv with volrepclass and volsync
