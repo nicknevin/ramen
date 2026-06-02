@@ -5,6 +5,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -1736,6 +1737,69 @@ func (v *VRGInstance) filterDefaultVRC(
 		objType, defaultVRCAnnotationKey)
 }
 
+func (v *VRGInstance) selectVolumeReplicationClassForPV(
+	pv *corev1.PersistentVolume,
+) (*volrep.VolumeReplicationClass, error) {
+	if err := v.updateReplicationClassList(); err != nil {
+		return nil, err
+	}
+
+	if len(v.replClassList.Items) == 0 {
+		return nil, fmt.Errorf("no VolumeReplicationClass available")
+	}
+
+	storageClass, err := v.getStorageClassFromSCName(&pv.Spec.StorageClassName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get StorageClass for PV %s (%w)", pv.Name, err)
+	}
+
+	var matching []client.Object
+
+	for index := range v.replClassList.Items {
+		vrc := &v.replClassList.Items[index]
+
+		schedulingInterval, found := vrc.Spec.Parameters[ReplicationClassScheduleKey]
+		if storageClass.Provisioner != vrc.Spec.Provisioner || !found {
+			continue
+		}
+
+		if schedulingInterval != v.instance.Spec.Async.SchedulingInterval {
+			continue
+		}
+
+		if len(v.instance.Spec.Async.PeerClasses) != 0 {
+			sID, exists := vrc.GetLabels()[StorageIDLabel]
+			if !exists || sID != storageClass.GetLabels()[StorageIDLabel] {
+				continue
+			}
+
+			rID, exists := vrc.GetLabels()[ReplicationIDLabel]
+			if !exists || rID != storageClass.GetLabels()[ReplicationIDLabel] {
+				continue
+			}
+		}
+
+		matching = append(matching, vrc)
+	}
+
+	var result client.Object
+
+	switch len(matching) {
+	case 0:
+		return nil, fmt.Errorf("no VolumeReplicationClass found matching PV %s (provisioner %s, schedule %s)",
+			pv.Name, storageClass.Provisioner, v.instance.Spec.Async.SchedulingInterval)
+	case 1:
+		result = matching[0]
+	default:
+		result, err = v.filterDefaultVRC(matching, "VolumeReplicationClass")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return result.(*volrep.VolumeReplicationClass), nil
+}
+
 func (v *VRGInstance) getStorageClassFromSCName(scName *string) (*storagev1.StorageClass, error) {
 	if storageClass, ok := v.storageClassCache[*scName]; ok {
 		return storageClass, nil
@@ -2854,6 +2918,44 @@ func (v *VRGInstance) processPVSecrets(pv *corev1.PersistentVolume) error {
 	return nil
 }
 
+func accessibleTopologyToNodeAffinity(topologyJSON string) (*corev1.VolumeNodeAffinity, error) {
+	var segments []map[string]string
+
+	if err := json.Unmarshal([]byte(topologyJSON), &segments); err != nil {
+		return nil, fmt.Errorf("failed to parse accessible_topology: %w", err)
+	}
+
+	if len(segments) == 0 {
+		return nil, nil
+	}
+
+	var terms []corev1.NodeSelectorTerm
+
+	for _, seg := range segments {
+		var exprs []corev1.NodeSelectorRequirement
+
+		for key, val := range seg {
+			exprs = append(exprs, corev1.NodeSelectorRequirement{
+				Key:      key,
+				Operator: corev1.NodeSelectorOpIn,
+				Values:   []string{val},
+			})
+		}
+
+		if len(exprs) > 0 {
+			terms = append(terms, corev1.NodeSelectorTerm{MatchExpressions: exprs})
+		}
+	}
+
+	if len(terms) == 0 {
+		return nil, nil
+	}
+
+	return &corev1.VolumeNodeAffinity{
+		Required: &corev1.NodeSelector{NodeSelectorTerms: terms},
+	}, nil
+}
+
 // cleanupForRestore cleans up required PV or PVC fields, to ensure restore succeeds
 // to a new cluster, and rebinding the PVC to an existing PV with the same claimRef
 func (v *VRGInstance) cleanupPVForRestore(pv *corev1.PersistentVolume) error {
@@ -2872,6 +2974,24 @@ func (v *VRGInstance) cleanupPVForRestore(pv *corev1.PersistentVolume) error {
 			v.log.V(1).Info("Set PV volume handle from destination handle", "PV", pv.Name, "handle", destHandle)
 			pv.Spec.CSI.VolumeHandle = destHandle
 			delete(pv.Annotations, destinationVolumeHandleAnnotation)
+		}
+	}
+
+	vrc, err := v.selectVolumeReplicationClassForPV(pv)
+	if err != nil {
+		v.log.Info("Could not find matching VRC for PV, skipping node affinity from topology",
+			"PV", pv.Name, "error", err)
+	} else if topologyVal, ok := vrc.Spec.Parameters["accessibleTopology"]; ok && topologyVal != "" {
+		affinity, err := accessibleTopologyToNodeAffinity(topologyVal)
+		if err != nil {
+			return fmt.Errorf("failed to apply accessible_topology from VRC %s to PV %s: %w",
+				vrc.Name, pv.Name, err)
+		}
+
+		if affinity != nil {
+			pv.Spec.NodeAffinity = affinity
+			v.log.Info("Set PV node affinity from VRC accessible_topology",
+				"PV", pv.Name, "VRC", vrc.Name)
 		}
 	}
 
