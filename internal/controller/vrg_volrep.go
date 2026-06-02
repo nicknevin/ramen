@@ -2896,7 +2896,94 @@ func (v *VRGInstance) cleanupPVForRestore(pv *corev1.PersistentVolume) error {
 		}
 	}
 
+	if err := v.updatePVNodeAffinity(pv); err != nil {
+		return err
+	}
+
 	return v.processPVSecrets(pv)
+}
+
+// getTopologyKeysForDriver returns the topology keys registered by the given CSI driver on a CSINode,
+// or nil if the driver is not present on that node.
+func getTopologyKeysForDriver(csiNode *storagev1.CSINode, driverName string) []string {
+	for _, d := range csiNode.Spec.Drivers {
+		if d.Name == driverName {
+			return d.TopologyKeys
+		}
+	}
+
+	return nil
+}
+
+// updatePVNodeAffinity rebuilds pv.Spec.NodeAffinity to reflect the topology of nodes on the
+// destination cluster that have the PV's CSI driver registered. It only acts when the PV already
+// carries a non-nil NodeAffinity; if no topology-aware nodes are found the existing affinity is
+// left unchanged.
+func (v *VRGInstance) updatePVNodeAffinity(pv *corev1.PersistentVolume) error {
+	if pv.Spec.NodeAffinity == nil || pv.Spec.CSI == nil {
+		return nil
+	}
+
+	driverName := pv.Spec.CSI.Driver
+
+	csiNodeList := &storagev1.CSINodeList{}
+	if err := v.reconciler.List(v.ctx, csiNodeList); err != nil {
+		return fmt.Errorf("failed to list CSINodes for PV %s node affinity update: %w", pv.Name, err)
+	}
+
+	var terms []corev1.NodeSelectorTerm
+
+	for i := range csiNodeList.Items {
+		csiNode := &csiNodeList.Items[i]
+
+		topologyKeys := getTopologyKeysForDriver(csiNode, driverName)
+		if len(topologyKeys) == 0 {
+			continue
+		}
+
+		node := &corev1.Node{}
+		if err := v.reconciler.Get(v.ctx, types.NamespacedName{Name: csiNode.Name}, node); err != nil {
+			v.log.Info("Skipping node for PV node affinity rebuild, failed to get Node",
+				"node", csiNode.Name, "PV", pv.Name, "error", err)
+
+			continue
+		}
+
+		var exprs []corev1.NodeSelectorRequirement
+
+		for _, key := range topologyKeys {
+			val, ok := node.Labels[key]
+			if !ok {
+				continue
+			}
+
+			exprs = append(exprs, corev1.NodeSelectorRequirement{
+				Key:      key,
+				Operator: corev1.NodeSelectorOpIn,
+				Values:   []string{val},
+			})
+		}
+
+		if len(exprs) > 0 {
+			terms = append(terms, corev1.NodeSelectorTerm{MatchExpressions: exprs})
+		}
+	}
+
+	if len(terms) == 0 {
+		v.log.Info("No topology-aware nodes found for driver; skipping node affinity update",
+			"PV", pv.Name, "driver", driverName)
+
+		return nil
+	}
+
+	pv.Spec.NodeAffinity = &corev1.VolumeNodeAffinity{
+		Required: &corev1.NodeSelector{NodeSelectorTerms: terms},
+	}
+
+	v.log.Info("Updated PV node affinity for restore", "PV", pv.Name,
+		"driver", driverName, "nodeCount", len(terms))
+
+	return nil
 }
 
 func cleanupPVCForRestore(pvc *corev1.PersistentVolumeClaim) error {
