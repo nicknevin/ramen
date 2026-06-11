@@ -5,6 +5,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -1758,6 +1759,69 @@ func (v *VRGInstance) filterDefaultVRC(
 		objType, defaultVRCAnnotationKey)
 }
 
+func (v *VRGInstance) selectVolumeReplicationClassForPV(
+	pv *corev1.PersistentVolume,
+) (*volrep.VolumeReplicationClass, error) {
+	if err := v.updateReplicationClassList(); err != nil {
+		return nil, err
+	}
+
+	if len(v.replClassList.Items) == 0 {
+		return nil, fmt.Errorf("no VolumeReplicationClass available")
+	}
+
+	storageClass, err := v.getStorageClassFromSCName(&pv.Spec.StorageClassName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get StorageClass for PV %s (%w)", pv.Name, err)
+	}
+
+	var matching []client.Object
+
+	for index := range v.replClassList.Items {
+		vrc := &v.replClassList.Items[index]
+
+		schedulingInterval, found := vrc.Spec.Parameters[ReplicationClassScheduleKey]
+		if storageClass.Provisioner != vrc.Spec.Provisioner || !found {
+			continue
+		}
+
+		if schedulingInterval != v.instance.Spec.Async.SchedulingInterval {
+			continue
+		}
+
+		if len(v.instance.Spec.Async.PeerClasses) != 0 {
+			sID, exists := vrc.GetLabels()[StorageIDLabel]
+			if !exists || sID != storageClass.GetLabels()[StorageIDLabel] {
+				continue
+			}
+
+			rID, exists := vrc.GetLabels()[ReplicationIDLabel]
+			if !exists || rID != storageClass.GetLabels()[ReplicationIDLabel] {
+				continue
+			}
+		}
+
+		matching = append(matching, vrc)
+	}
+
+	var result client.Object
+
+	switch len(matching) {
+	case 0:
+		return nil, fmt.Errorf("no VolumeReplicationClass found matching PV %s (provisioner %s, schedule %s)",
+			pv.Name, storageClass.Provisioner, v.instance.Spec.Async.SchedulingInterval)
+	case 1:
+		result = matching[0]
+	default:
+		result, err = v.filterDefaultVRC(matching, "VolumeReplicationClass")
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return result.(*volrep.VolumeReplicationClass), nil
+}
+
 func (v *VRGInstance) getStorageClassFromSCName(scName *string) (*storagev1.StorageClass, error) {
 	if storageClass, ok := v.storageClassCache[*scName]; ok {
 		return storageClass, nil
@@ -2876,6 +2940,44 @@ func (v *VRGInstance) processPVSecrets(pv *corev1.PersistentVolume) error {
 	return nil
 }
 
+func accessibleTopologyToNodeAffinity(topologyJSON string) (*corev1.VolumeNodeAffinity, error) {
+	var segments []map[string]string
+
+	if err := json.Unmarshal([]byte(topologyJSON), &segments); err != nil {
+		return nil, fmt.Errorf("failed to parse accessible_topology: %w", err)
+	}
+
+	if len(segments) == 0 {
+		return nil, nil
+	}
+
+	var terms []corev1.NodeSelectorTerm
+
+	for _, seg := range segments {
+		var exprs []corev1.NodeSelectorRequirement
+
+		for key, val := range seg {
+			exprs = append(exprs, corev1.NodeSelectorRequirement{
+				Key:      key,
+				Operator: corev1.NodeSelectorOpIn,
+				Values:   []string{val},
+			})
+		}
+
+		if len(exprs) > 0 {
+			terms = append(terms, corev1.NodeSelectorTerm{MatchExpressions: exprs})
+		}
+	}
+
+	if len(terms) == 0 {
+		return nil, nil
+	}
+
+	return &corev1.VolumeNodeAffinity{
+		Required: &corev1.NodeSelector{NodeSelectorTerms: terms},
+	}, nil
+}
+
 // cleanupForRestore cleans up required PV or PVC fields, to ensure restore succeeds
 // to a new cluster, and rebinding the PVC to an existing PV with the same claimRef
 func (v *VRGInstance) cleanupPVForRestore(pv *corev1.PersistentVolume) error {
@@ -2894,6 +2996,31 @@ func (v *VRGInstance) cleanupPVForRestore(pv *corev1.PersistentVolume) error {
 			v.log.V(1).Info("Set PV volume handle from destination handle", "PV", pv.Name, "handle", destHandle)
 			pv.Spec.CSI.VolumeHandle = destHandle
 			delete(pv.Annotations, destinationVolumeHandleAnnotation)
+		}
+	}
+
+	if v.errorInject["AffinityFromNodes"] == "true" {
+		err := v.updatePVNodeAffinityFromNodes(pv)
+		if err != nil {
+			v.log.Info("Failed to update PV node affinity from nodes for PV, skipping node affinity from CSINodes",
+				"PV", pv.Name, "error", err)
+		}
+	} else {
+		vrc, err := v.selectVolumeReplicationClassForPV(pv)
+		if err != nil {
+			v.log.Info("Could not find matching VRC for PV, skipping node affinity from VRC",
+				"PV", pv.Name, "error", err)
+		} else if topologyVal, ok := vrc.Spec.Parameters["accessibleTopology"]; ok && topologyVal != "" {
+			affinity, err := accessibleTopologyToNodeAffinity(topologyVal)
+			if err != nil {
+				return fmt.Errorf("failed to apply accessible_topology from VRC %s to PV %s: %w",
+					vrc.Name, pv.Name, err)
+			}
+
+			if affinity != nil {
+				pv.Spec.NodeAffinity = affinity
+				v.log.Info("Set PV node affinity from VRC accessible_topology", "PV", pv.Name, "VRC", vrc.Name)
+			}
 		}
 	}
 
@@ -3802,6 +3929,89 @@ func cleanupDryRunSnapshots(
 	if errorCount > 0 {
 		return fmt.Errorf("failed to delete %d snapshots during cleanup", errorCount)
 	}
+
+	return nil
+}
+
+// getTopologyKeysForDriver returns the topology keys registered by the given CSI driver on a CSINode,
+// or nil if the driver is not present on that node.
+func getTopologyKeysForDriver(csiNode *storagev1.CSINode, driverName string) []string {
+	for _, d := range csiNode.Spec.Drivers {
+		if d.Name == driverName {
+			return d.TopologyKeys
+		}
+	}
+
+	return nil
+}
+
+// updatePVNodeAffinity rebuilds pv.Spec.NodeAffinity to reflect the topology of nodes on the
+// destination cluster that have the PV's CSI driver registered. It only acts when the PV already
+// carries a non-nil NodeAffinity; if no topology-aware nodes are found the existing affinity is
+// left unchanged.
+func (v *VRGInstance) updatePVNodeAffinityFromNodes(pv *corev1.PersistentVolume) error {
+	if pv.Spec.NodeAffinity == nil || pv.Spec.CSI == nil {
+		return nil
+	}
+
+	driverName := pv.Spec.CSI.Driver
+
+	csiNodeList := &storagev1.CSINodeList{}
+	if err := v.reconciler.List(v.ctx, csiNodeList); err != nil {
+		return fmt.Errorf("failed to list CSINodes for PV %s node affinity update: %w", pv.Name, err)
+	}
+
+	var terms []corev1.NodeSelectorTerm
+
+	for i := range csiNodeList.Items {
+		csiNode := &csiNodeList.Items[i]
+
+		topologyKeys := getTopologyKeysForDriver(csiNode, driverName)
+		if len(topologyKeys) == 0 {
+			continue
+		}
+
+		node := &corev1.Node{}
+		if err := v.reconciler.Get(v.ctx, types.NamespacedName{Name: csiNode.Name}, node); err != nil {
+			v.log.Info("Skipping node for PV node affinity rebuild, failed to get Node",
+				"node", csiNode.Name, "PV", pv.Name, "error", err)
+
+			continue
+		}
+
+		var exprs []corev1.NodeSelectorRequirement
+
+		for _, key := range topologyKeys {
+			val, ok := node.Labels[key]
+			if !ok {
+				continue
+			}
+
+			exprs = append(exprs, corev1.NodeSelectorRequirement{
+				Key:      key,
+				Operator: corev1.NodeSelectorOpIn,
+				Values:   []string{val},
+			})
+		}
+
+		if len(exprs) > 0 {
+			terms = append(terms, corev1.NodeSelectorTerm{MatchExpressions: exprs})
+		}
+	}
+
+	if len(terms) == 0 {
+		v.log.Info("No topology-aware nodes found for driver; skipping node affinity update",
+			"PV", pv.Name, "driver", driverName)
+
+		return nil
+	}
+
+	pv.Spec.NodeAffinity = &corev1.VolumeNodeAffinity{
+		Required: &corev1.NodeSelector{NodeSelectorTerms: terms},
+	}
+
+	v.log.Info("Updated PV node affinity for restore", "PV", pv.Name,
+		"driver", driverName, "nodeCount", len(terms))
 
 	return nil
 }
