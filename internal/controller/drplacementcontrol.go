@@ -1369,7 +1369,10 @@ func (d *DRPCInstance) ensureActionCompleted(srcCluster string) (bool, error) {
 	return done, nil
 }
 
-func (d *DRPCInstance) ensureCleanupAndSecondaryReplicationSetup(srcCluster string) error {
+func (d *DRPCInstance) ensureCleanupAndSecondaryReplicationSetup(srcCluster string) (ret_err error) {
+	d.log.Info("enter ensureCleanupAndSecondaryReplicationSetup", "clusterName", srcCluster)
+	defer func() { d.log.Info("exit ensureCleanupAndSecondaryReplicationSetup", "error", ret_err) }()
+
 	// If we have VolSync replication, this is the perfect time to reset the RDSpec
 	// on the primary. This will cause the RD to be cleared on the primary
 	err := d.ResetVolSyncRDOnPrimary(srcCluster)
@@ -1401,7 +1404,10 @@ func (d *DRPCInstance) ensureCleanupAndSecondaryReplicationSetup(srcCluster stri
 }
 
 //nolint:cyclop
-func (d *DRPCInstance) quiesceAndRunFinalSync(homeCluster string) (bool, error) {
+func (d *DRPCInstance) quiesceAndRunFinalSync(homeCluster string) (ret_done bool, ret_err error) {
+	d.log.Info("enter quiesceAndRunFinalSync", "homeName", homeCluster)
+	defer func() { d.log.Info("exit quiesceAndRunFinalSync", "done", ret_done, "error", ret_err) }()
+
 	const done = true
 
 	result, err := d.prepareForFinalSync(homeCluster)
@@ -2579,7 +2585,10 @@ func isVRGSecondary(vrg *rmn.VolumeReplicationGroup) bool {
 	return (vrg.Spec.ReplicationState == rmn.Secondary)
 }
 
-func (d *DRPCInstance) EnsureCleanup(clusterToSkip string) error {
+func (d *DRPCInstance) EnsureCleanup(clusterToSkip string) (ret_err error) {
+	d.log.Info("enter EnsureCleanup", "clusterToSkip", clusterToSkip)
+	defer func() { d.log.Info("exit EnsureCleanup", "error", ret_err) }()
+
 	d.log.Info("ensuring cleanup on secondaries")
 
 	condition := rmnutil.FindCondition(d.instance.Status.Conditions, rmn.ConditionPeerReady)
@@ -2607,7 +2616,10 @@ func (d *DRPCInstance) EnsureCleanup(clusterToSkip string) error {
 	return d.cleanupSecondaries(clusterToSkip)
 }
 
-func (d *DRPCInstance) cleanupSecondaries(clusterToSkip string) error {
+func (d *DRPCInstance) cleanupSecondaries(clusterToSkip string) (ret_err error) {
+	d.log.Info("enter cleanupSecondaries", "clusterToSkip", clusterToSkip)
+	defer func() { d.log.Info("exit cleanupSecondaries", "error", ret_err) }()
+
 	d.log.Info("Ensure secondary setup on peer")
 
 	for _, clusterName := range rmnutil.DRPolicyClusterNames(d.drPolicy) {
@@ -2632,7 +2644,10 @@ func (d *DRPCInstance) cleanupSecondaries(clusterToSkip string) error {
 }
 
 //nolint:cyclop
-func (d *DRPCInstance) cleanupSecondary(clusterName, clusterToSkip string) (bool, error) {
+func (d *DRPCInstance) cleanupSecondary(clusterName, clusterToSkip string) (ret_peerReady bool, ret_err error) {
+	d.log.Info("enter cleanupSecondary", "clusterToSkip", clusterToSkip)
+	defer func() { d.log.Info("exit cleanupSecondary", "peerReady", ret_peerReady, "error", ret_err) }()
+
 	peerReady := true
 
 	justUpdated, err := d.updateVRGState(clusterName, rmn.Secondary)

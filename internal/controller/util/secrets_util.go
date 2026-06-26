@@ -701,7 +701,8 @@ func (sutil *SecretsUtil) AddSecretToCluster(
 	format TargetSecretFormat,
 	veleroNS string,
 ) error {
-	sutil.Log.Info("Add Secret", "cluster", clusterName, "secret", secretName, "format", format)
+	sutil.Log.Info("Add Secret", "cluster", clusterName, "secret", secretName, "format", format,
+		"namespace", namespace, "targetNS", targetNS)
 
 	if len(secretName)+len(namespace)+len(".")+formatPrefixLen > policyNameLengthLimit {
 		return fmt.Errorf("secret namespace.name (%s.%s) length exceeds maximum character limit (%d)",

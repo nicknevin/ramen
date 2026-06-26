@@ -17,7 +17,10 @@ import (
 	"github.com/ramendr/ramen/internal/controller/volsync"
 )
 
-func (d *DRPCInstance) EnsureSecondaryReplicationSetup(srcCluster string) error {
+func (d *DRPCInstance) EnsureSecondaryReplicationSetup(srcCluster string) (ret_err error) {
+	d.log.Info("enter EnsureSecondaryReplicationSetup", "srcCluster", srcCluster)
+	defer func() { d.log.Info("exit EnsureSecondaryReplicationSetup", "error", ret_err) }()
+
 	d.setProgression(rmn.ProgressionEnsuringVolSyncSetup) // TODO: Update progression string
 
 	// Create or update the destination VRG
@@ -385,7 +388,10 @@ func (d *DRPCInstance) resetRDSpec(srcVRG, dstVRG *rmn.VolumeReplicationGroup,
 	}
 }
 
-func (d *DRPCInstance) ResetVolSyncRDOnPrimary(clusterName string) error {
+func (d *DRPCInstance) ResetVolSyncRDOnPrimary(clusterName string) (ret_err error) {
+	d.log.Info("enter ResetVolSyncRDOnPrimary", "clusterName", clusterName)
+	defer func() { d.log.Info("exit ResetVolSyncRDOnPrimary", "error", ret_err) }()
+
 	if d.volSyncDisabled {
 		d.log.Info("VolSync is disabled")
 
