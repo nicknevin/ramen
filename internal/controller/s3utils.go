@@ -97,6 +97,7 @@ type ObjectStorer interface {
 	DeleteObject(key string) error
 	DeleteObjects(key ...string) error
 	DeleteObjectsWithKeyPrefix(keyPrefix string) error
+	Logger() logr.Logger
 }
 
 // S3ObjectStoreGetter returns a concrete type that implements
@@ -166,6 +167,7 @@ func (s3ObjectStoreGetter) ObjectStore(ctx context.Context,
 		s3Bucket:     s3StoreProfile.S3Bucket,
 		callerTag:    callerTag,
 		name:         s3ProfileName,
+		logger:       log,
 	}
 
 	return s3Conn, s3StoreProfile, nil
@@ -205,6 +207,7 @@ type s3ObjectStore struct {
 	s3Bucket     string
 	callerTag    string
 	name         string
+	logger       logr.Logger
 }
 
 // CreateBucket creates the given bucket; does not return an error if the bucket
@@ -584,6 +587,10 @@ func (s *s3ObjectStore) ListKeys(keyPrefix string) (
 	return keys, nil
 }
 
+func (s *s3ObjectStore) Logger() logr.Logger {
+	return s.logger
+}
+
 // DownloadObject downloads an object from the bucket with the given key,
 // unzips, decodes the json blob and stores the downloaded object in the
 // downloadContent parameter.  The caller is expected to use the correct type of
@@ -666,6 +673,8 @@ func (s *s3ObjectStore) DeleteObjectsWithKeyPrefix(keyPrefix string) (
 		return processAwsError(errMsgPrefix, err)
 	}
 
+	s.Logger().Info("DeleteObjectsWithKeyPrefix", "bucket", bucket, "keyPrefix", keyPrefix)
+
 	if err = s.DeleteObjects(keys...); err != nil {
 		return fmt.Errorf("unable to DeleteObjects "+
 			"from endpoint %s bucket %s keyPrefix %s, %w",
@@ -675,7 +684,7 @@ func (s *s3ObjectStore) DeleteObjectsWithKeyPrefix(keyPrefix string) (
 	return nil
 }
 
-func (s *s3ObjectStore) DeleteObjects(keys ...string) error {
+func (s *s3ObjectStore) DeleteObjects(keys ...string) (ret_error error) {
 	numObjects := len(keys)
 	delObjects := make([]s3manager.BatchDeleteObject, numObjects)
 
@@ -688,6 +697,12 @@ func (s *s3ObjectStore) DeleteObjects(keys ...string) error {
 		}
 	}
 
+	var start = time.Now()
+	s.Logger().Info("entry DeleteObjects", "bucket", s.s3Bucket, "numObjects", numObjects, "keys", keys)
+	defer func() {
+		s.Logger().Info("exit DeleteObjects", "bucket", s.s3Bucket, "numObjects", numObjects, "duration", time.Since(start), "ret_error", ret_error)
+	}()
+
 	ctx, cancel := context.WithDeadline(context.TODO(), time.Now().Add(s3Timeout))
 	defer cancel()
 
@@ -695,6 +710,17 @@ func (s *s3ObjectStore) DeleteObjects(keys ...string) error {
 		Objects: delObjects,
 	})
 	if err != nil {
+		var berr awserr.BatchError
+		if errors.As(err, &berr) {
+			s.Logger().Error(berr, "DeleteObjects", "code", berr.Code(), "origErrors", berr.OrigErrs())
+		} else {
+			var aerr awserr.Error
+			if errors.As(err, &aerr) {
+				s.Logger().Error(err, "DeleteObjects", "code", aerr.Code())
+			} else {
+				s.Logger().Error(err, "DeleteObjects")
+			}
+		}
 		errMsgPrefix := fmt.Errorf("unable to process batch delete")
 
 		return processAwsError(errMsgPrefix, err)

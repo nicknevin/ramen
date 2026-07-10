@@ -74,6 +74,7 @@ func (fakeObjectStoreGetter) ObjectStore(
 			name:       s3ProfileName,
 			bucketName: s3StoreProfile.S3Bucket,
 			objects:    make(map[string]interface{}),
+			logger:     log,
 		}
 		fakeObjectStorers[s3ProfileName] = objectStorer
 	}
@@ -86,6 +87,7 @@ type fakeObjectStorer struct {
 	bucketName string
 	objects    map[string]interface{}
 	mutex      sync.Mutex
+	logger     logr.Logger
 }
 
 func (f *fakeObjectStorer) UploadObject(key string, object interface{}) error {
@@ -171,6 +173,10 @@ func (f *fakeObjectStorer) DeleteObjectsWithKeyPrefix(keyPrefix string) error {
 	}
 
 	return nil
+}
+
+func (f *fakeObjectStorer) Logger() logr.Logger {
+	return f.logger
 }
 
 var _ = Describe("FakeObjectStorer", func() {
