@@ -872,7 +872,8 @@ func (v *VSHandler) retainPVAndCreateTmpPVC(pvc *corev1.PersistentVolumeClaim) (
 func (v *VSHandler) retainPVForPVC(pvc corev1.PersistentVolumeClaim) error {
 	l := v.log.WithValues("pvc", pvc.Name)
 
-	l.V(1).Info("retain PV for PVC")
+	l.V(1).Info("entry VSHandler.retainPVForPVC")
+	defer l.V(1).Info("exit VSHandler.retainPVForPVC")
 
 	// Get PV bound to PVC
 	pv := &corev1.PersistentVolume{}
@@ -909,6 +910,7 @@ func (v *VSHandler) retainPVForPVC(pvc corev1.PersistentVolumeClaim) error {
 			return nil
 		}
 
+		l.V(1).Info("VSHandler.retainPVForPVC set reclaim policy to Retain", "pv", pvObj.Name)
 		// if not retained, retain PV, and add an annotation to denote this is updated for VolSync needs
 		pvObj.Spec.PersistentVolumeReclaimPolicy = corev1.PersistentVolumeReclaimRetain
 

@@ -73,6 +73,9 @@ func logWithPvcName(log logr.Logger, pvc *corev1.PersistentVolumeClaim) logr.Log
 // reconcileVolRepsAsPrimary creates/updates VolumeReplication CR for each pvc
 // from pvcList. If it fails (even for one pvc), then requeue is set to true.
 func (v *VRGInstance) reconcileVolRepsAsPrimary() {
+	v.log.Info("entry reconcileVolRepsAsPrimary")
+	defer v.log.Info("exit reconcileVolRepsAsPrimary")
+
 	// Cleanup dry-run snapshots when promoting to real failover (DryRun: true → false)
 	if v.shouldCleanupDryRunSnapshots() {
 		v.log.Info("Promoting to real failover, cleaning up dry-run snapshots")
@@ -505,6 +508,9 @@ func (v *VRGInstance) preparePVCForVRProtection(pvc *corev1.PersistentVolumeClai
 
 //nolint:funlen,cyclop
 func (v *VRGInstance) protectPVC(pvc *corev1.PersistentVolumeClaim, log logr.Logger) bool {
+	log.V(1).Info("entry protectPVC", "pvcName", pvc.Name)
+	defer log.V(1).Info("exit protectPVC", "pvcName", pvc.Name)
+
 	const requeue = true
 
 	vrg := v.instance
@@ -668,6 +674,8 @@ func (v *VRGInstance) preparePVCForVRDeletion(pvc *corev1.PersistentVolumeClaim,
 
 // retainPVForPVC updates the PV reclaim policy to retain for a given PVC
 func (v *VRGInstance) retainPVForPVC(pvc corev1.PersistentVolumeClaim, log logr.Logger) error {
+	log.V(1).Info("entry VRGInstance.retainPVForPVC", "pvcName", pvc.Name)
+	defer log.V(1).Info("exit VRGInstance.retainPVForPVC", "pvcName", pvc.Name)
 	// Get PV bound to PVC
 	pv := &corev1.PersistentVolume{}
 	pvObjectKey := client.ObjectKey{
@@ -682,11 +690,15 @@ func (v *VRGInstance) retainPVForPVC(pvc corev1.PersistentVolumeClaim, log logr.
 			pvc.Spec.VolumeName, pvc.Namespace, pvc.Name, v.instance.Namespace, v.instance.Name, err)
 	}
 
+	log.V(1).Info("retainPVForPVC", "pvName", pv.Name, "reclaimPolicy", pv.Spec.PersistentVolumeReclaimPolicy,
+		"annotations", pv.GetAnnotations())
 	// Check reclaimPolicy of PV, if already set to retain
 	if pv.Spec.PersistentVolumeReclaimPolicy == corev1.PersistentVolumeReclaimRetain {
 		return nil
 	}
 
+	log.V(1).Info("retainPVForPVC setting reclaim policy to Retain and annotation vr-retained to retained", "pvName", pv.Name,
+		"annotations", pv.GetAnnotations())
 	// if not retained, retain PV, and add an annotation to denote this is updated for VR needs
 	pv.Spec.PersistentVolumeReclaimPolicy = corev1.PersistentVolumeReclaimRetain
 
@@ -696,13 +708,15 @@ func (v *VRGInstance) retainPVForPVC(pvc corev1.PersistentVolumeClaim, log logr.
 
 // undoPVRetention updates the PV reclaim policy back to its saved state
 func undoPVRetention(pv *corev1.PersistentVolume, log logr.Logger) {
-	log.V(1).Info("entry undoPVRetention", "pvName", pv.Name, "annotations", pv.GetAnnotations())
+	log.V(1).Info("entry undoPVRetention", "pvName", pv.Name, "reclaimPolicy", pv.Spec.PersistentVolumeReclaimPolicy,
+		"annotations", pv.GetAnnotations())
 	defer log.V(1).Info("exit undoPVRetention", "pvName", pv.Name)
 
 	if v, ok := pv.ObjectMeta.Annotations[pvVRAnnotationRetentionKey]; !ok || v != pvVRAnnotationRetentionValue {
 		return
 	}
 
+	log.V(1).Info("undoPVRetention setting reclaim policy to Delete and deleting annotation vr-retained", "pvName", pv.Name)
 	pv.Spec.PersistentVolumeReclaimPolicy = corev1.PersistentVolumeReclaimDelete
 	delete(pv.ObjectMeta.Annotations, pvVRAnnotationRetentionKey)
 }
@@ -2441,7 +2455,7 @@ func (v *VRGInstance) deleteVR(vrNamespacedName types.NamespacedName, log logr.L
 		return nil
 	}
 
-	v.log.Info("Deleted VolumeReplication resource %s/%s", vrNamespacedName.Namespace, vrNamespacedName.Name)
+	v.log.Info("Deleted VolumeReplication resource")
 
 	return v.ensureVRDeletedFromAPIServer(vrNamespacedName, cr, log)
 }

@@ -32,7 +32,7 @@ import (
 // We have seen that valid errors from the S3 servers can take up to 2 minutes to timeout.
 // let's reduce this timeout to a more reasonable duration.
 // TODO: Preferably, make the s3 timeout configurable
-var s3Timeout = time.Second * 12
+var s3Timeout = time.Second * 30
 
 // Example usage:
 // func example_code() {

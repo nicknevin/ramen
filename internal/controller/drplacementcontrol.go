@@ -1370,7 +1370,7 @@ func (d *DRPCInstance) ensureActionCompleted(srcCluster string) (bool, error) {
 }
 
 func (d *DRPCInstance) ensureCleanupAndSecondaryReplicationSetup(srcCluster string) (ret_err error) {
-	d.log.Info("enter ensureCleanupAndSecondaryReplicationSetup", "clusterName", srcCluster)
+	d.log.Info("entry ensureCleanupAndSecondaryReplicationSetup", "clusterName", srcCluster)
 	defer func() { d.log.Info("exit ensureCleanupAndSecondaryReplicationSetup", "error", ret_err) }()
 
 	// If we have VolSync replication, this is the perfect time to reset the RDSpec
@@ -1405,7 +1405,7 @@ func (d *DRPCInstance) ensureCleanupAndSecondaryReplicationSetup(srcCluster stri
 
 //nolint:cyclop
 func (d *DRPCInstance) quiesceAndRunFinalSync(homeCluster string) (ret_done bool, ret_err error) {
-	d.log.Info("enter quiesceAndRunFinalSync", "homeName", homeCluster)
+	d.log.Info("entry quiesceAndRunFinalSync", "homeName", homeCluster)
 	defer func() { d.log.Info("exit quiesceAndRunFinalSync", "done", ret_done, "error", ret_err) }()
 
 	const done = true
@@ -2586,7 +2586,7 @@ func isVRGSecondary(vrg *rmn.VolumeReplicationGroup) bool {
 }
 
 func (d *DRPCInstance) EnsureCleanup(clusterToSkip string) (ret_err error) {
-	d.log.Info("enter EnsureCleanup", "clusterToSkip", clusterToSkip)
+	d.log.Info("entry EnsureCleanup", "clusterToSkip", clusterToSkip)
 	defer func() { d.log.Info("exit EnsureCleanup", "error", ret_err) }()
 
 	d.log.Info("ensuring cleanup on secondaries")
@@ -2617,7 +2617,7 @@ func (d *DRPCInstance) EnsureCleanup(clusterToSkip string) (ret_err error) {
 }
 
 func (d *DRPCInstance) cleanupSecondaries(clusterToSkip string) (ret_err error) {
-	d.log.Info("enter cleanupSecondaries", "clusterToSkip", clusterToSkip)
+	d.log.Info("entry cleanupSecondaries", "clusterToSkip", clusterToSkip)
 	defer func() { d.log.Info("exit cleanupSecondaries", "error", ret_err) }()
 
 	d.log.Info("Ensure secondary setup on peer")
@@ -2645,7 +2645,7 @@ func (d *DRPCInstance) cleanupSecondaries(clusterToSkip string) (ret_err error) 
 
 //nolint:cyclop
 func (d *DRPCInstance) cleanupSecondary(clusterName, clusterToSkip string) (ret_peerReady bool, ret_err error) {
-	d.log.Info("enter cleanupSecondary", "clusterToSkip", clusterToSkip)
+	d.log.Info("entry cleanupSecondary", "clusterToSkip", clusterToSkip)
 	defer func() { d.log.Info("exit cleanupSecondary", "peerReady", ret_peerReady, "error", ret_err) }()
 
 	peerReady := true
@@ -3412,26 +3412,30 @@ func (d *DRPCInstance) setDiscoveredAppGCProgression(clusterName string) {
 	if d.isVMRecipeInUse() {
 		switch {
 		case d.isPreparingForFinalSync(clusterName): // for relocation only
-			d.log.V(1).Info("Setting progression - PreparingFinalSync")
+			d.log.V(1).Info("Setting progression - PreparingFinalSync", "cluster", clusterName, "vmRecipeInUse", "true")
 			d.setProgression(rmn.ProgressionPreparingFinalSync)
 		case d.isVMAutoCleanupFeasible(clusterName):
-			d.log.V(1).Info("Setting progression - CleanUpReadiness")
+			d.log.V(1).Info("Setting progression - CleanUpReadiness", "cluster", clusterName, "vmRecipeInUse", "true")
 			d.setProgression(rmn.ProgressionCleanupReadiness)
 		case d.isVMAutoCleanupCompleted(clusterName):
-			d.log.V(1).Info("Setting progression - Cleaning Up")
+			d.log.V(1).Info("Setting progression - Cleaning Up", "cluster", clusterName, "vmRecipeInUse", "true")
 			d.setProgression(rmn.ProgressionCleaningUp)
 		default:
+			d.log.V(1).Info("Setting progression - WaitOnUserToCleanUp (waiting for manual cleanup)", "cluster", clusterName, "vmRecipeInUse", "true")
 			d.setProgression(rmn.ProgressionWaitOnUserToCleanUp)
 		}
 	} else {
 		// For non-VM discovered apps, check if VRG has reached Secondary state
 		// indicating that manual cleanup is complete
 		vrg := d.getCleanupSecondaryVRG(clusterName)
-		if vrg != nil && vrg.Status.State == rmn.SecondaryState && vrg.Status.ObservedGeneration == vrg.Generation {
-			d.log.V(1).Info("Setting progression - Cleaning Up (non-VM app cleanup complete, VRG is Secondary)")
+		if vrg == nil {
+			d.log.V(1).Info("Setting progression - WaitOnUserToCleanUp (VRG not found)", "cluster", clusterName, "vmRecipeInUse", "false")
+			d.setProgression(rmn.ProgressionWaitOnUserToCleanUp)
+		} else if vrg.Status.State == rmn.SecondaryState && vrg.Status.ObservedGeneration == vrg.Generation {
+			d.log.V(1).Info("Setting progression - Cleaning Up (non-VM app cleanup complete, VRG is Secondary)", "cluster", clusterName, "vmRecipeInUse", "false")
 			d.setProgression(rmn.ProgressionCleaningUp)
 		} else {
-			d.log.V(1).Info("Setting progression - WaitOnUserToCleanUp (waiting for manual cleanup)")
+			d.log.V(1).Info("Setting progression - WaitOnUserToCleanUp (waiting for manual cleanup)", "cluster", clusterName, "vmRecipeInUse", "false")
 			d.setProgression(rmn.ProgressionWaitOnUserToCleanUp)
 		}
 	}

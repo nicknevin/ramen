@@ -18,7 +18,7 @@ import (
 )
 
 func (d *DRPCInstance) EnsureSecondaryReplicationSetup(srcCluster string) (ret_err error) {
-	d.log.Info("enter EnsureSecondaryReplicationSetup", "srcCluster", srcCluster)
+	d.log.Info("entry EnsureSecondaryReplicationSetup", "srcCluster", srcCluster)
 	defer func() { d.log.Info("exit EnsureSecondaryReplicationSetup", "error", ret_err) }()
 
 	d.setProgression(rmn.ProgressionEnsuringVolSyncSetup) // TODO: Update progression string
@@ -389,7 +389,7 @@ func (d *DRPCInstance) resetRDSpec(srcVRG, dstVRG *rmn.VolumeReplicationGroup,
 }
 
 func (d *DRPCInstance) ResetVolSyncRDOnPrimary(clusterName string) (ret_err error) {
-	d.log.Info("enter ResetVolSyncRDOnPrimary", "clusterName", clusterName)
+	d.log.Info("entry ResetVolSyncRDOnPrimary", "clusterName", clusterName)
 	defer func() { d.log.Info("exit ResetVolSyncRDOnPrimary", "error", ret_err) }()
 
 	if d.volSyncDisabled {

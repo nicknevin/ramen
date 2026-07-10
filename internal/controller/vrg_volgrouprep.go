@@ -29,6 +29,9 @@ const (
 //nolint:gocognit,cyclop,funlen
 func (v *VRGInstance) reconcileVolGroupRepsAsPrimary(groupPVCs map[types.NamespacedName][]*corev1.PersistentVolumeClaim,
 ) {
+	v.log.Info("entry reconcileVolGroupRepsAsPrimary", "#groupPVCs", len(groupPVCs))
+	defer v.log.Info("exit reconcileVolGroupRepsAsPrimary")
+
 	isGlobal := v.hasGlobalVGRLabel()
 
 	if isGlobal && !v.isGlobalStateInConsensus() {
@@ -54,6 +57,7 @@ func (v *VRGInstance) reconcileVolGroupRepsAsPrimary(groupPVCs map[types.Namespa
 
 		for idx := range pvcs {
 			pvc := pvcs[idx]
+			log.Info("reconcileVolGroupRepsAsPrimary processing PVC", "pvc", pvc.Name)
 
 			// Annotate the PV with the destination volume handle if available from VR status.
 			// This allows the secondary cluster to restore the PV with the correct volume handle
@@ -710,10 +714,13 @@ func (v *VRGInstance) labelPVCsWithVGROwner(pvcs []*corev1.PersistentVolumeClaim
 //nolint:gocognit,funlen
 func (v *VRGInstance) createOrUpdateVGR(vrNamespacedName types.NamespacedName,
 	pvcs []*corev1.PersistentVolumeClaim, state volrep.ReplicationState, log logr.Logger,
-) (bool, bool, error) {
+) (ret_requeue bool, ret_skip bool, ret_error error) {
 	const requeue = true
 
-	v.log.V(1).Info("create or update VGR", "state", state, "pvcs", len(pvcs))
+	log.V(1).Info("entry createOrUpdateVGR", "state", state, "pvcs", len(pvcs))
+	defer func() {
+		log.V(1).Info("exit createOrUpdateVGR", "requeue", ret_requeue, "skip", ret_skip, "error", ret_error)
+	}()
 
 	if err := v.labelPVCsWithVGROwner(pvcs, vrNamespacedName.Name); err != nil {
 		return requeue, false, err
@@ -785,10 +792,13 @@ func (v *VRGInstance) createOrUpdateVGR(vrNamespacedName types.NamespacedName,
 
 func (v *VRGInstance) updateVGR(pvcs []*corev1.PersistentVolumeClaim,
 	volRep *volrep.VolumeGroupReplication, state volrep.ReplicationState, log logr.Logger,
-) (bool, bool, error) {
+) (ret_requeue bool, ret_skip bool, ret_error error) {
 	const requeue = true
 
-	log.Info(fmt.Sprintf("Update VolumeGroupReplication %s/%s", volRep.Namespace, volRep.Name))
+	log.Info("entry updateVGR", "namespace", volRep.Namespace, "name", volRep.Name, "state", state)
+	defer func() {
+		log.Info("exit updateVGR", "requeue", ret_requeue, "skip", ret_skip, "error", ret_error)
+	}()
 
 	if volRep.Spec.ReplicationState == state && volRep.Spec.AutoResync == v.autoResync(state) {
 		log.Info("VolumeGroupReplication and VolumeReplicationGroup state match. Proceeding to status check")
@@ -967,7 +977,12 @@ func (v *VRGInstance) deleteVGR(vrNamespacedName types.NamespacedName, log logr.
 // and annotates the PV with the destination volume handle if available.
 func (v *VRGInstance) annotateWithDestinationVolumeHandleForVolGroupRep(vrNamespacedName types.NamespacedName,
 	pvc *corev1.PersistentVolumeClaim,
-) error {
+) (ret_error error) {
+	v.log.Info("entry annotateWithDestinationVolumeHandleForVolGroupRep", "vrNamespacedName", vrNamespacedName, "pvc", pvc.Name)
+	defer func() {
+		v.log.Info("exit annotateWithDestinationVolumeHandleForVolGroupRep", "vrNamespacedName", vrNamespacedName, "pvc", pvc.Name, "error", ret_error)
+	}()
+
 	// Metro DR (Sync mode) doesn't use VolumeGroupReplication
 	if v.instance.Spec.Sync != nil {
 		return nil
