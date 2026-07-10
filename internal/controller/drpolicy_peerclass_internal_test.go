@@ -11,6 +11,7 @@ import (
 	groupsnapv1beta1 "github.com/red-hat-storage/external-snapshotter/client/v8/apis/volumegroupsnapshot/v1beta1"
 	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 // nolint:dupl
@@ -22,7 +23,7 @@ var _ = Describe("updatePeerClassesInternal", func() {
 			syncPeers []peerInfo,
 			asyncPeers []peerInfo,
 		) {
-			sPeers, aPeers := findAllPeers(cls, schedule)
+			sPeers, aPeers := findAllPeers(cls, schedule, zap.New())
 			Expect(sPeers).Should(HaveExactElements(syncPeers))
 			Expect(aPeers).Should(HaveExactElements(asyncPeers))
 		},

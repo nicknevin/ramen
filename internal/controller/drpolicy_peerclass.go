@@ -355,8 +355,10 @@ func isAsyncVGRClassPeerGlobal(clA, clB classLists, grID string) bool {
 //   - Snapshots: Uses VGSC and VSC, grouping = true when VGSC exists on both clusters for the same storageClass
 //
 // nolint:gocognit,cyclop,ineffassign,funlen
-func getAsyncPeers(scName, clusterID, sID string, offloaded bool, cls []classLists, schedule string) []peerInfo {
+func getAsyncPeers(scName, clusterID, sID string, offloaded bool, cls []classLists, schedule string, log logr.Logger) []peerInfo {
 	peers := []peerInfo{}
+
+	log.Info("getAsyncPeers", "scName", scName, "clusterID", clusterID, "sID", sID, "#cls", len(cls), "offloaded", offloaded, "schedule", schedule)
 
 	for _, cl := range cls[1:] {
 		for scIdx := range cl.sClasses {
@@ -379,6 +381,7 @@ func getAsyncPeers(scName, clusterID, sID string, offloaded bool, cls []classLis
 			}
 
 			grID = getAsyncVGRClassPeer(scName, cls[0], cl, sID, sIDcl, schedule)
+			log.Info("getAsyncPeers", "scName", scName, "clusterID", clusterID, "sID", sID, "peerClusterID", cl.clusterID, "peerSID", sIDcl, "grID", grID)
 			if offloaded && grID == "" {
 				continue
 			}
@@ -392,6 +395,7 @@ func getAsyncPeers(scName, clusterID, sID string, offloaded bool, cls []classLis
 				}
 			case false:
 				rID = getAsyncVRClassPeer(scName, cls[0], cl, sID, sIDcl, schedule)
+				log.Info("getAsyncPeers", "scName", scName, "clusterID", clusterID, "sID", sID, "peerClusterID", cl.clusterID, "peerSID", sIDcl, "rID", rID)
 				grouping = rID != "" && grID != ""
 
 				if rID == "" {
@@ -455,7 +459,7 @@ func getSyncPeers(scName string, clusterID string, sID string, cls []classLists)
 
 // findPeers finds all sync and async peers for the scName and cluster at the index startClsIdx of classLists,
 // across other remaining elements post the startClsIdx in the classLists
-func findPeers(cls []classLists, scName string, startClsIdx int, schedule string) ([]peerInfo, []peerInfo) {
+func findPeers(cls []classLists, scName string, startClsIdx int, schedule string, log logr.Logger) ([]peerInfo, []peerInfo) {
 	scIdx := 0
 	for scIdx = range cls[startClsIdx].sClasses {
 		if cls[startClsIdx].sClasses[scIdx].Name == scName {
@@ -478,7 +482,7 @@ func findPeers(cls []classLists, scName string, startClsIdx int, schedule string
 
 	asyncPeers := []peerInfo{}
 	if schedule != "" {
-		asyncPeers = getAsyncPeers(scName, cls[startClsIdx].clusterID, sID, offloaded, cls[startClsIdx:], schedule)
+		asyncPeers = getAsyncPeers(scName, cls[startClsIdx].clusterID, sID, offloaded, cls[startClsIdx:], schedule, log)
 	}
 
 	return syncPeers, asyncPeers
@@ -503,7 +507,7 @@ func unionStorageClasses(cls []classLists) []string {
 
 // findAllPeers finds all PAIRs of peers in the passed in classLists. It does an exhaustive search for each scName in
 // the prior index of classLists (starting at index 0) with all clusters from that index forward
-func findAllPeers(cls []classLists, schedule string) ([]peerInfo, []peerInfo) {
+func findAllPeers(cls []classLists, schedule string, log logr.Logger) ([]peerInfo, []peerInfo) {
 	syncPeers := []peerInfo{}
 	asyncPeers := []peerInfo{}
 
@@ -516,10 +520,11 @@ func findAllPeers(cls []classLists, schedule string) ([]peerInfo, []peerInfo) {
 	for clsIdx := range cls[:len(cls)-1] {
 		for scIdx := range cls[clsIdx].sClasses {
 			if !slices.Contains(sClassNames, cls[clsIdx].sClasses[scIdx].Name) {
+				log.Info("findAllPeers", "skipping sc - SHOULDN'T HAPPEN", cls[clsIdx].sClasses[scIdx].Name)
 				continue
 			}
 
-			sPeers, aPeers := findPeers(cls, cls[clsIdx].sClasses[scIdx].Name, clsIdx, schedule)
+			sPeers, aPeers := findPeers(cls, cls[clsIdx].sClasses[scIdx].Name, clsIdx, schedule, log)
 			if len(sPeers) != 0 {
 				syncPeers = append(syncPeers, sPeers...)
 			}
@@ -578,6 +583,7 @@ func getVRClassesFromCluster(
 	vrClasses := []*volrep.VolumeReplicationClass{}
 
 	vrClassNames := drcConfig.Status.VolumeReplicationClasses
+	u.log.Info("getVRClassesFromCluster", "cluster", clusterName, "vrClassNames", vrClassNames)
 	if len(vrClassNames) == 0 {
 		return vrClasses, nil
 	}
@@ -590,7 +596,6 @@ func getVRClassesFromCluster(
 		if err != nil {
 			return []*volrep.VolumeReplicationClass{}, err
 		}
-
 		vrClasses = append(vrClasses, sClass)
 	}
 
@@ -775,7 +780,7 @@ func getClusterClasses(
 	u *drpolicyUpdater,
 	m util.ManagedClusterViewGetter,
 	cluster string,
-) (classLists, error) {
+) (ret_cls classLists, ret_error error) {
 	mc, err := util.NewManagedClusterInstance(u.ctx, u.client, cluster)
 	if err != nil {
 		return classLists{}, err
@@ -794,6 +799,8 @@ func getClusterClasses(
 		return classLists{}, err
 	}
 
+	u.log.Info("getClusterClasses", "cluster", cluster, "drcConfig", drcConfig)
+
 	sClasses, err := GetSClassesFromCluster(u.log, m, drcConfig, cluster)
 	if err != nil || len(sClasses) == 0 {
 		return classLists{}, err
@@ -805,6 +812,7 @@ func getClusterClasses(
 	}
 
 	vrClasses, err := getVRClassesFromCluster(u, m, drcConfig, cluster)
+	u.log.Info("getClusterClasses", "cluster", cluster, "vrClasses", vrClasses)
 	if err != nil {
 		return classLists{}, err
 	}
@@ -864,6 +872,11 @@ func updatePeerClasses(u *drpolicyUpdater, m util.ManagedClusterViewGetter) erro
 		if err != nil {
 			return err
 		}
+		u.log.Info("updatePeerClasses", "sClasses", clusterClasses.sClasses, "cluster", u.object.Spec.DRClusters[idx])
+		u.log.Info("updatePeerClasses", "vsClasses", clusterClasses.vsClasses, "cluster", u.object.Spec.DRClusters[idx])
+		u.log.Info("updatePeerClasses", "vrClasses", clusterClasses.vrClasses, "cluster", u.object.Spec.DRClusters[idx])
+		u.log.Info("updatePeerClasses", "vgrClasses", clusterClasses.vgrClasses, "cluster", u.object.Spec.DRClusters[idx])
+		u.log.Info("updatePeerClasses", "vgsClasses", clusterClasses.vgsClasses, "cluster", u.object.Spec.DRClusters[idx])
 
 		if len(clusterClasses.sClasses) == 0 {
 			continue
@@ -872,7 +885,7 @@ func updatePeerClasses(u *drpolicyUpdater, m util.ManagedClusterViewGetter) erro
 		cls = append(cls, clusterClasses)
 	}
 
-	syncPeers, asyncPeers := findAllPeers(cls, u.object.Spec.SchedulingInterval)
+	syncPeers, asyncPeers := findAllPeers(cls, u.object.Spec.SchedulingInterval, u.log)
 
 	return updatePeerClassStatus(u, syncPeers, asyncPeers)
 }
