@@ -6,6 +6,7 @@ package controllers
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	volrep "github.com/csi-addons/kubernetes-csi-addons/api/replication.storage/v1alpha1"
@@ -82,6 +83,14 @@ func (v *VRGInstance) reconcileVolGroupRepsAsPrimary(groupPVCs map[types.Namespa
 
 		// Global VGRs are not backed up to S3 they are created fresh on the target cluster.
 		if !isGlobal {
+			if err := v.annotateVGRCWithDestinationVolumeGroupHandle(vgrNamespacedName); err != nil {
+				log.Error(err, "Failed to annotate VGRC with destination volume group handle", "vgr", vgrNamespacedName)
+
+				v.requeue()
+
+				continue
+			}
+
 			if err := v.uploadVGRandVGRCtoS3Stores(vgrNamespacedName, log); err != nil {
 				log.Error(err, "Requeuing due to failure to upload VGR object to S3 store(s)")
 
@@ -973,6 +982,29 @@ func (v *VRGInstance) deleteVGR(vrNamespacedName types.NamespacedName, log logr.
 	return v.ensureVRDeletedFromAPIServer(vrNamespacedName, cr, log)
 }
 
+func (v *VRGInstance) annotateVGRCWithDestinationVolumeGroupHandle(vrNamespacedName types.NamespacedName) error {
+	vgr := &volrep.VolumeGroupReplication{}
+
+	if err := v.reconciler.Get(v.ctx, vrNamespacedName, vgr); err != nil {
+		v.log.Info(fmt.Sprintf("failed to get VGR %s err %s", vrNamespacedName.Name, err))
+
+		return err
+	}
+
+	vgrc, err := v.getVGRCFromVGR(vgr)
+	if err != nil {
+		v.log.Error(err, "failed to annotate VGRC for VGR - no VGRContent found", "vgr", vrNamespacedName.Name)
+		return err
+	}
+
+	if vgrc.Status.DestinationVolumeGroupID != "" {
+		return v.addAnnotationForResource(&vgrc, "VolumeGroupReplicationContent", destinationVolumeGroupHandleAnnotation,
+			vgrc.Status.DestinationVolumeGroupID, v.log)
+	}
+
+	return nil
+}
+
 // annotateWithDestinationVolumeHandleForVolGroupRep looks up the VolumeGroupReplication for the PVC
 // and annotates the PV with the destination volume handle if available.
 func (v *VRGInstance) annotateWithDestinationVolumeHandleForVolGroupRep(vrNamespacedName types.NamespacedName,
@@ -1245,6 +1277,19 @@ func (v *VRGInstance) validateExistingVGR(vgr *volrep.VolumeGroupReplication) er
 func (v *VRGInstance) cleanupVGRCForRestore(vgrc *volrep.VolumeGroupReplicationContent) error {
 	vgrc.ResourceVersion = ""
 	vgrc.Spec.VolumeGroupReplicationRef = nil
+
+	v.log.V(1).Info("cleanupVGRCForRestore", "VGRC", vgrc)
+
+	// If the VGRC was annotated with a destination volume group handle during S3 upload, replace the
+	// VolumeGroupReplicationHandle so the VGRC references the correct volume group on this (destination) cluster.
+	if vgrc.Annotations != nil {
+		if destHandle, ok := vgrc.Annotations[destinationVolumeGroupHandleAnnotation]; ok && destHandle != "" {
+			destHandle, _, _ = strings.Cut(destHandle, "/")
+			v.log.V(1).Info("Setting volume group replication handle from annotation", "VGRC", vgrc.Name, "handle", destHandle)
+			vgrc.Spec.VolumeGroupReplicationHandle = destHandle
+			delete(vgrc.Annotations, destinationVolumeGroupHandleAnnotation)
+		}
+	}
 
 	return v.processVGRCSecrets(vgrc)
 }

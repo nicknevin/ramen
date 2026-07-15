@@ -44,6 +44,11 @@ const (
 	// volume handle before uploading to S3. During restore, this annotation is read
 	// and the PV's volumeHandle is replaced with it.
 	destinationVolumeHandleAnnotation = "ramendr.openshift.io/destination-volume-handle"
+
+	// destinationVolumeGroupHandleAnnotation is used to annotate a VGRC with the destination
+	// volume group handle before uploading to S3. During restore, this annotation is read
+	// and the VGRC's volumeGroupHandle is replaced with it.
+	destinationVolumeGroupHandleAnnotation = "ramendr.openshift.io/destination-volumegroup-handle"
 )
 
 //nolint:gosec
