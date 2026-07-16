@@ -865,7 +865,7 @@ func (v *VRGInstance) applyDestinationVolumeHandleToPV(
 	}
 
 	pv.Annotations[destinationVolumeHandleAnnotation] = destinationVolumeHandle
-	v.log.Info(fmt.Sprintf("annotated PV %s with DestinationVolumeID %s", pv.Name, destinationVolumeHandle))
+	v.log.Info(fmt.Sprintf("annotated PV %s with DestinationVolumeID %s", pv.Name, destinationVolumeHandle), "caller", rmnutil.CallerInfo(1))
 
 	if err := v.reconciler.Update(v.ctx, pv); err != nil {
 		return fmt.Errorf("failed to update PersistentVolume %s with destination volume handle annotation: %w", pv.Name, err)
@@ -2609,7 +2609,7 @@ func (v *VRGInstance) restorePVCsFromObjectStore(objectStore ObjectStorer, s3Pro
 
 	v.volRepPVCs = append(v.volRepPVCs, pvcList...)
 
-	return restoreClusterDataObjects(v, pvcList, "PVC", cleanupPVCForRestore, v.validateExistingPVC)
+	return restoreClusterDataObjects(v, pvcList, "PVC", v.cleanupPVCForRestore, v.validateExistingPVC)
 }
 
 // checkPVClusterData returns an error if there are PVs in the input pvList
@@ -2999,6 +2999,7 @@ func accessibleTopologyToNodeAffinity(topologyJSON string) (*corev1.VolumeNodeAf
 // cleanupForRestore cleans up required PV or PVC fields, to ensure restore succeeds
 // to a new cluster, and rebinding the PVC to an existing PV with the same claimRef
 func (v *VRGInstance) cleanupPVForRestore(pv *corev1.PersistentVolume) error {
+	v.log.V(1).Info("cleanupPVForRestore", "PV", pv)
 	pv.ResourceVersion = ""
 	if pv.Spec.ClaimRef != nil {
 		pv.Spec.ClaimRef.UID = ""
@@ -3038,7 +3039,8 @@ func (v *VRGInstance) cleanupPVForRestore(pv *corev1.PersistentVolume) error {
 	return v.processPVSecrets(pv)
 }
 
-func cleanupPVCForRestore(pvc *corev1.PersistentVolumeClaim) error {
+func (v *VRGInstance) cleanupPVCForRestore(pvc *corev1.PersistentVolumeClaim) error {
+	v.log.V(1).Info("cleanupPVCForRestore", "PVC", pvc)
 	pvc.ObjectMeta.Annotations = PruneAnnotations(pvc.GetAnnotations())
 	pvc.ObjectMeta.Finalizers = []string{}
 	pvc.ObjectMeta.ResourceVersion = ""

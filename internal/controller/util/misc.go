@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"reflect"
+	stdruntime "runtime"
 	"strings"
 
 	"github.com/google/uuid"
@@ -519,4 +520,13 @@ func GetRemoteServiceNameForDiffRDFromPVCName(pvcName, rdNamespace string) strin
 	diffLocalName := GetLocalServiceNameForDiffRD(GetReplicationDestinationName(pvcName))
 
 	return fmt.Sprintf("%s.%s.svc.clusterset.local", diffLocalName, rdNamespace)
+}
+
+// skip = 0 means the caller of this function, skip = 1 means the caller of the caller, and so on
+func CallerInfo(skip int) string {
+	_, file, line, ok := stdruntime.Caller(skip + 1)
+	if !ok {
+		return "unknown"
+	}
+	return fmt.Sprintf("%s:%d", file, line)
 }
