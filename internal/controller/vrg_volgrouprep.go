@@ -1231,6 +1231,29 @@ func (v *VRGInstance) cleanupVGRCForRestore(vgrc *volrep.VolumeGroupReplicationC
 	vgrc.ResourceVersion = ""
 	vgrc.Spec.VolumeGroupReplicationRef = nil
 
+	// If destination info was populated by the CSI-addons controller on the
+	// source cluster, replace spec fields so the CSI driver on this
+	// (destination) cluster sees correct volume handles. The RPC guarantees
+	// that when destination info is available, all mappings are complete.
+	if vgrc.Status.DestinationVolumeGroupID != "" {
+		v.log.Info("Set VGRC group handle from destination ID",
+			"VGRC", vgrc.Name,
+			"handle", vgrc.Status.DestinationVolumeGroupID)
+		vgrc.Spec.VolumeGroupReplicationHandle = vgrc.Status.DestinationVolumeGroupID
+
+		destHandles := make([]string, 0, len(vgrc.Status.PersistentVolumeMappingList))
+		for _, mapping := range vgrc.Status.PersistentVolumeMappingList {
+			destHandles = append(destHandles, mapping.DestinationVolumeHandle)
+		}
+
+		if len(destHandles) > 0 {
+			v.log.Info("Set VGRC volume handles from destination IDs",
+				"VGRC", vgrc.Name,
+				"handles", destHandles)
+			vgrc.Spec.Source.VolumeHandles = destHandles
+		}
+	}
+
 	return v.processVGRCSecrets(vgrc)
 }
 
