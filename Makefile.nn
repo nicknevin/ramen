@@ -1,0 +1,38 @@
+REPO ?= nnevin
+TAG ?= canary
+#TAG ?= destinfo
+
+export IMAGE_REPOSITORY = $(REPO)
+export IMAGE_TAG = $(TAG)
+
+.PHONY: help
+help:
+	@echo "resources     - make local kustomizations - tag $(TAG)"
+	@echo "build         - make ramen image - tag $(TAG)"
+	@echo "push          - push ramen image - tag $(TAG)"
+	@echo "image         - build and push ramen image - tag $(TAG)"
+
+.PHONY: resources build push image
+resources:
+	$(MAKE) resources
+
+build:
+	$(MAKE) resources build docker-build
+
+push:
+	$(MAKE) docker-push
+
+image: build push
+
+.PHONY: setup test
+setup:
+	$(MAKE) setup-csi-replication
+test:
+	$(MAKE) test-dr-flow
+
+.PHONY: venv
+venv:
+	hack/make-venv ~/.venv/$(shell basename $(CURDIR))
+
+env:
+	$(MAKE) env

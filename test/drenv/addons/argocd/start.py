@@ -49,6 +49,7 @@ def wait_for_deployments(cluster):
         "--all",
         "--for=condition=Available",
         "--namespace=argocd",
+        "--timeout=5m",
         context=cluster,
     )
 

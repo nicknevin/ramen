@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-venv=${1:-~/.venv/ramen}
+venv=${1:-~/.venv/ramen-drmk}
 
 if [ -d "$venv" ]; then
     echo "Virtual environemnt exists: '$venv'"
