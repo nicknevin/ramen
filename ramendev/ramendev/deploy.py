@@ -30,6 +30,11 @@ def register(commands):
         default=IMAGE,
         help=f"The container image to deploy (default '{IMAGE}')",
     )
+    parser.add_argument(
+        "--no-load",
+        action="store_true",
+        help="Don't load the image"
+    )
 
 
 def run(args):
@@ -38,7 +43,8 @@ def run(args):
     command.info("Preparing resources")
     command.watch("make", "-C", args.source_dir, "resources")
 
-    load_image(args)
+    if not args.no_load:
+        load_image(args)
 
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = []
@@ -68,7 +74,7 @@ def load_image(args):
         command.watch(*cmd, stderr=subprocess.STDOUT, cwd=work_dir)
 
 
-def deploy(args, cluster, deploy_type, distro="", timeout=120):
+def deploy(args, cluster, deploy_type, distro="", timeout=180):
     deploy = f"ramen-{deploy_type}-operator"
 
     command.info("Deploying ramen operator in cluster '%s'", cluster)

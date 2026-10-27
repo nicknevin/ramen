@@ -69,8 +69,8 @@ def generate_config_map(controller, env, args):
         auto_deploy="true",
         cluster1=clusters[0],
         cluster2=clusters[1],
-        minio_url_cluster1=minio.service_url(clusters[0]),
-        minio_url_cluster2=minio.service_url(clusters[1]),
+        minio_url_cluster1=minio.service_url("hub"),
+        minio_url_cluster2=minio.service_url("hub"),
         volsync_disabled="false" if volsync else "true",
         namespace=args.ramen_namespace,
     )
@@ -111,7 +111,7 @@ def wait_for_secret_propagation(hub, clusters, args):
             f"policy/{policy}",
             "--for=create",
             f"--namespace={cluster}",
-            timeout=60,
+            timeout=300,
             context=hub,
             log=command.debug,
         )
@@ -120,7 +120,7 @@ def wait_for_secret_propagation(hub, clusters, args):
             f"policy/{policy}",
             "--for=jsonpath={.status.compliant}=Compliant",
             f"--namespace={cluster}",
-            timeout=60,
+            timeout=300,
             context=hub,
             log=command.debug,
         )
@@ -153,6 +153,7 @@ def wait_for_dr_policy(hub, args):
         kubectl.wait(
             f"drpolicy/dr-policy-{interval}",
             "--for=condition=Validated",
+            timeout=300,
             context=hub,
             log=command.debug,
         )

@@ -394,6 +394,25 @@ def add_registry_cache_command(sp):
             """),
     )
 
+    add_command(
+        sp,
+        "setup",
+        registry_setup,
+        help="setup cache containers",
+        envfile=False,
+        description=options.dedent("""
+            Setup the cached registry containers managed by drenv.
+
+            Examples:
+              # Setup all cached registry containers
+              drenv registry-cache setup
+            """),
+    )
+
+
+def registry_setup(args):
+    registry.setup()
+
 
 def add_stress_test_command(sp):
     p = sp.add_parser(

@@ -3,6 +3,8 @@
 
 import json
 import os
+import time
+from datetime import datetime
 
 import drenv
 from drenv import cluster as drenv_cluster
@@ -30,6 +32,10 @@ def start(broker, *clusters):
 
     for cluster in clusters:
         join_cluster(cluster, broker_info)
+
+    print(f"after joining clusters {datetime.now()}")
+
+    time.sleep(60)
 
     for cluster in clusters:
         wait_for_cluster(cluster)
@@ -107,7 +113,7 @@ def annotate_nodes(cluster):
 
 
 def wait_for_cluster(cluster):
-    print(f"Waiting for submariner deployuments in cluster '{cluster}'")
+    print(f"Waiting for submariner deployments in cluster '{cluster}'")
     wait_for_deployments(cluster, CLUSTER_DEPLOYMENTS, NAMESPACE)
 
 
