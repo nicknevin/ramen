@@ -1,0 +1,60 @@
+# Stages
+# ------
+# RequestReceived:  The API server has just received the request but hasn't started processing it through its handlers.
+# ResponseStarted:  The server has begun sending the response headers but hasn't sent the response body yet,
+#                   this stage is primarily for long-running requests like watch.
+# ResponseComplete: The entire response has been sent to the client, indicating the request processing is fully finished.
+#
+# Levels
+# ------
+# None:            Log nothing.
+# Metadata:        Log user, timestamp, resource, verb, etc..
+# Request:         Log metadata and the request body.
+# RequestResponse: Log metadata, the request body and the response body.
+
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitManagedFields: true
+rules:
+- level: None
+  nonResourceURLs:
+  - /api*
+  - /healthz*
+  - /version
+  - /swagger*
+
+- level: None
+  verbs: ["watch","list","get"]
+
+- level: None
+  users: ["system:kube-controller-manager"]
+  resources:
+  - group: ""
+    resources: ["secrets", "configmaps", "serviceaccounts/token"]
+
+- level: None
+  userGroups: ["system:nodes"]
+  resources:
+  - group: ""
+    resources: ["secrets", "configmaps", "serviceaccounts/token"]
+
+- level: None
+  resources:
+  - group: ""
+    resources: ["events"]
+  - group: "coordination.k8s.io"
+    resources: ["leases"]
+
+- level: None
+  users:
+  - "system:serviceaccount:kube-system:generic-garbage-collector"
+  - "system:serviceaccount:kube-system:namespace-controller"
+
+- level: Metadata
+  resources:
+  - group: ""
+    resources: ["secrets", "serviceaccounts/token"]
+
+- level: Request
+  omitStages:
+  - RequestReceived

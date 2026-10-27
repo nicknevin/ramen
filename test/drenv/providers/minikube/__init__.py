@@ -158,6 +158,7 @@ def start(
     # TODO: Use --interactive=false when the bug is fixed.
     # https://github.com/kubernetes/minikube/issues/19518
 
+    logging.info("[%s] Starting minikube cluster with args %s", profile["name"], args)
     _watch("start", *args, profile=profile["name"])
 
     logging.info(

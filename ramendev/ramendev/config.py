@@ -69,8 +69,8 @@ def generate_config_map(controller, env, args):
         auto_deploy="true",
         cluster1=clusters[0],
         cluster2=clusters[1],
-        minio_url_cluster1=minio.service_url(clusters[0]),
-        minio_url_cluster2=minio.service_url(clusters[1]),
+        minio_url_cluster1=minio.service_url("hub"),
+        minio_url_cluster2=minio.service_url("hub"),
         volsync_disabled="false" if volsync else "true",
         namespace=args.ramen_namespace,
     )

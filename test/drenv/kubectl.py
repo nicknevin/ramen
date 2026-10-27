@@ -14,7 +14,7 @@ JSONPATH_NEWLINE = '{"\\n"}'
 # delete, rollout). Without a timeout these commands can hang indefinitely,
 # wasting hours of CI time. Sentinel.Duration so "caller did not pass" is
 # distinguishable for rollout() (only "status" supports --timeout).
-_DEFAULT_TIMEOUT = sentinel.Duration(300)
+_DEFAULT_TIMEOUT = sentinel.Duration(600)
 
 _APPLY_FLAGS_WITH_VALUE = frozenset(
     ("-f", "--filename", "-k", "--kustomize", "--template")

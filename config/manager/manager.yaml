@@ -34,7 +34,7 @@ spec:
         - --metrics-bind-address=0.0.0.0:9289
         - --leader-elect
         image: controller
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         name: manager
         env:
           - name: POD_NAMESPACE
