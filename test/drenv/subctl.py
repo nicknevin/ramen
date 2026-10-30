@@ -39,6 +39,8 @@ def join(broker_info, context, clusterid, cable_driver=None, version=None, log=p
         context,
         "--clusterid",
         clusterid,
+        "--clustercidr",
+        "10.1.0.0/16"
     ]
     if cable_driver:
         args.extend(("--cable-driver", cable_driver))
