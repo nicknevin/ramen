@@ -38,6 +38,9 @@ const (
 	// When this annotation is set to true, differential (incremental) syncs will be enabled for CephFS CG.
 	EnableDiffAnnotation = "drplacementcontrol.ramendr.openshift.io/enable-diff"
 
+	// When this annotation is present, resyncing on the primary will be enabled.
+	ResyncOnPrimaryAnnotation = "drplacementcontrol.ramendr.openshift.io/resync-on-primary"
+
 	MaxK8sLabelLength = validation.DNS1123LabelMaxLength
 	MaxK8sNameLength  = validation.DNS1123LabelMaxLength
 
