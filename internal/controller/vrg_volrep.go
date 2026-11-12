@@ -49,6 +49,11 @@ const (
 	// volume handle before uploading to S3. During restore, this annotation is read
 	// and the PV's volumeHandle is replaced with it.
 	destinationVolumeHandleAnnotation = "ramendr.openshift.io/destination-volume-handle"
+
+	// vrResyncOnPrimaryAnnotation is set on a VolumeReplication when the VRG has the
+	// rmnutil.ResyncOnPrimaryAnnotation, to enable resyncing on the primary.
+	// TODO: replace with the csi-addons constant once it is defined there.
+	vrResyncOnPrimaryAnnotation = "replication.storage.openshift.io/resync-on-primary"
 )
 
 const (
@@ -1541,6 +1546,26 @@ func (v *VRGInstance) updateVR(pvc *corev1.PersistentVolumeClaim, volRep *volrep
 ) (bool, bool, error) {
 	const requeue = true
 
+	if v.syncVRResyncOnPrimaryAnnotation(volRep) {
+		if err := v.reconciler.Update(v.ctx, volRep); err != nil {
+			log.Error(err, "Failed to update VolumeReplication resource annotations",
+				"name", volRep.GetName(), "namespace", volRep.GetNamespace())
+			rmnutil.ReportIfNotPresent(v.reconciler.eventRecorder, v.instance, corev1.EventTypeWarning,
+				rmnutil.EventReasonVRUpdateFailed, err.Error())
+
+			msg := "Failed to update VolumeReplication resource"
+			v.updatePVCDataReadyCondition(pvc.Namespace, pvc.Name, VRGConditionReasonError, msg)
+
+			return requeue, false, fmt.Errorf("failed to update VolumeReplication resource"+
+				" (%s/%s) annotations, belonging to VolumeReplicationGroup (%s/%s), %w",
+				volRep.GetNamespace(), volRep.GetName(), v.instance.Namespace, v.instance.Name, err)
+		}
+
+		log.Info("Updated VolumeReplication resource annotations", "name", volRep.GetName(),
+			"namespace", volRep.GetNamespace(), vrResyncOnPrimaryAnnotation,
+			volRep.GetAnnotations()[vrResyncOnPrimaryAnnotation])
+	}
+
 	// If state is already as desired, check the status
 	if volRep.Spec.ReplicationState == state && volRep.Spec.AutoResync == v.autoResync(state) {
 		log.Info("VolumeReplication and VolumeReplicationGroup state and autoresync match. Proceeding to status check")
@@ -1608,6 +1633,7 @@ func (v *VRGInstance) createVR(vrNamespacedName types.NamespacedName, state volr
 	}
 
 	rmnutil.AddLabel(volRep, rmnutil.CreatedByRamenLabel, "true")
+	v.syncVRResyncOnPrimaryAnnotation(volRep)
 
 	if !vrgInAdminNamespace(v.instance, v.ramenConfig) {
 		// This is to keep existing behavior of ramen.
@@ -1627,6 +1653,36 @@ func (v *VRGInstance) createVR(vrNamespacedName types.NamespacedName, state volr
 	}
 
 	return nil
+}
+
+// syncVRResyncOnPrimaryAnnotation makes the VolumeReplication resync-on-primary annotation match the VRG
+// resync-on-primary annotation. The VRG annotation value is copied as-is when present, and the VolumeReplication
+// annotation is removed when the VRG annotation is absent. Returns true if volRep was modified.
+func (v *VRGInstance) syncVRResyncOnPrimaryAnnotation(volRep *volrep.VolumeReplication) bool {
+	value, present := v.instance.GetAnnotations()[rmnutil.ResyncOnPrimaryAnnotation]
+	current, currentPresent := volRep.GetAnnotations()[vrResyncOnPrimaryAnnotation]
+
+	if present == currentPresent && value == current {
+		return false
+	}
+
+	annotations := volRep.GetAnnotations()
+
+	if !present {
+		delete(annotations, vrResyncOnPrimaryAnnotation)
+		volRep.SetAnnotations(annotations)
+
+		return true
+	}
+
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+
+	annotations[vrResyncOnPrimaryAnnotation] = value
+	volRep.SetAnnotations(annotations)
+
+	return true
 }
 
 func (v *VRGInstance) getPVCForVRNSName(vrNamespacedName types.NamespacedName) (*corev1.PersistentVolumeClaim, error) {
